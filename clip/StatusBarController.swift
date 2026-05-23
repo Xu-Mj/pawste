@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ServiceManagement   // SMAppService 注册登录项
 
 // 菜单栏图标 + 浮窗的总指挥
 @MainActor
@@ -220,7 +221,80 @@ final class StatusBarController {
     // MARK: - 事件处理
 
     @objc private func handleStatusItemClick() {
-        togglePanel()
+        // 区分左右键：左键开关浮窗，右键弹设置菜单
+        // NSApp.currentEvent 在 action 回调里能拿到触发的那个事件
+        if NSApp.currentEvent?.type == .rightMouseDown {
+            showContextMenu()
+        } else {
+            togglePanel()
+        }
+    }
+
+    // MARK: - 右键菜单 + 开机自启动
+
+    private func showContextMenu() {
+        guard let button = statusItem.button else { return }
+
+        let menu = NSMenu()
+
+        // 开机自启动开关
+        let launchItem = NSMenuItem(
+            title: "开机自动启动",
+            action: #selector(toggleLaunchAtLogin),
+            keyEquivalent: ""
+        )
+        launchItem.target = self
+        // state: 控制菜单项左边那个 ✓ 标记
+        launchItem.state = isLaunchAtLoginEnabled ? .on : .off
+        menu.addItem(launchItem)
+
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(
+            title: "退出 Clip",
+            action: #selector(quitApp),
+            keyEquivalent: "q"
+        )
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        // popUp(positioning:at:in:) 在指定 view 的指定坐标弹出菜单
+        // at: NSPoint 是相对 button 内部坐标（左下角原点）
+        // button.bounds.height 是顶端，菜单从这里向下展开
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: button.bounds.height + 4),
+            in: button
+        )
+    }
+
+    // 当前是否已注册开机自启动
+    // SMAppService.mainApp 是 macOS 13+ 的现代 API，对应自身这个 App
+    // .status 返回 .enabled / .notRegistered / .notFound / .requiresApproval
+    private var isLaunchAtLoginEnabled: Bool {
+        SMAppService.mainApp.status == .enabled
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            if isLaunchAtLoginEnabled {
+                try SMAppService.mainApp.unregister()
+                print("🔕 已关闭开机自启动")
+            } else {
+                try SMAppService.mainApp.register()
+                print("🔔 已开启开机自启动")
+            }
+        } catch {
+            // 常见失败原因：
+            //   - 调试构建路径在 DerivedData 里，系统认为这不是合法 App
+            //   - 未签名 / 签名身份变化导致 TCC 拒绝
+            // 生产构建（放进 /Applications + 有 Developer ID 签名）就不会这样
+            print("⚠️ 自启动操作失败: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
     }
 
     private func installEventMonitors() {
