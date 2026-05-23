@@ -53,16 +53,22 @@ final class StatusBarController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // 允许从窗口背景任意位置拖动（不只是 titleBar）
+        // 由于 SwiftUI 里 Button 会"吃掉"鼠标事件，拖动只会从空白区（标题、footer 等）生效
+        // 点击 item / 按钮不会误触拖动，恰好是我们想要的行为
+        panel.isMovableByWindowBackground = true
 
         // 注意：彻底拿掉了 NSVisualEffectView！
         // 现在背景由 SwiftUI 用 macOS 26 的 .glassEffect() 直接渲染，等于走系统级 Liquid Glass 管线
         // 顺带好处：层次简化，layout 递归 warning 大概率消失
         //
         // panel.contentView 直接是 NSHostingView，没中间层
+        // onSelect 改成接收完整 ClipboardItem
+        // 因为图片场景下需要 ImageEntry（filename / displayName 等），不光是字符串
         let rootView = ContentView(
             watcher: watcher,
-            onSelect: { [weak self] text in
-                self?.handleItemSelection(text)
+            onSelect: { [weak self] item in
+                self?.handleItemSelection(item)
             },
             onDismiss: { [weak self] in
                 self?.hidePanel()
@@ -97,26 +103,17 @@ final class StatusBarController {
     }
 
     func showPanel() {
-        guard let button = statusItem.button,
-              let buttonWindow = button.window else { return }
-
         // 记下当前前台 App，关闭弹窗后我们要把焦点还给它
-        // 排除自己（避免快速 toggle 时把自己记成 previousApp）
         if let frontmost = NSWorkspace.shared.frontmostApplication,
            frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = frontmost
         }
 
-        let buttonScreenFrame = buttonWindow.convertToScreen(button.frame)
-        let x = buttonScreenFrame.midX - panelSize.width / 2
-        let y = buttonScreenFrame.minY - panelSize.height - 4
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        // 每次打开都定位到鼠标附近，让浮窗"跟着用户走"
+        // 内部会自动 clamp 到当前屏幕的可见区域，不会跑出屏幕
+        panel.setFrameOrigin(panelOriginNearMouse())
 
-        // 关键修复：不要 NSApp.activate(ignoringOtherApps: true)
-        // .nonactivatingPanel 本来就是"不抢前台"的设计；之前那行把好处砸了
-        //
-        // FloatingPanel.canBecomeKey = true 让 panel 能接收键盘事件
-        // 不需要 App 变 active 也能接收 —— 关键 window != active App
+        // .nonactivatingPanel + FloatingPanel.canBecomeKey 让 panel 能收键盘事件但不抢 App 焦点
         panel.makeKeyAndOrderFront(nil)
 
         installEventMonitors()
@@ -127,36 +124,97 @@ final class StatusBarController {
         removeEventMonitors()
     }
 
+    // MARK: - 位置计算
+
+    // 计算"鼠标附近"的浮窗原点
+    //
+    // 策略：让 panel 的中心对齐鼠标位置，然后裁剪到当前屏幕的可见区域
+    // 这样无论鼠标在屏幕哪个角落，浮窗都不会跑出屏幕
+    //
+    // 多显示器适配：以鼠标所在的那块屏幕的 visibleFrame 为准
+    private func panelOriginNearMouse() -> NSPoint {
+        let mouse = NSEvent.mouseLocation
+
+        // 找鼠标在哪块屏幕（visibleFrame 排除 Dock / 菜单栏占用区）
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first!
+        let bounds = screen.visibleFrame
+
+        // panel 中心对齐鼠标
+        var origin = NSPoint(
+            x: mouse.x - panelSize.width / 2,
+            y: mouse.y - panelSize.height / 2
+        )
+
+        // Clamp 到屏幕可见区域，留 8pt 边距让浮窗别贴边
+        let margin: CGFloat = 8
+        origin.x = max(bounds.minX + margin,
+                       min(bounds.maxX - panelSize.width - margin, origin.x))
+        origin.y = max(bounds.minY + margin,
+                       min(bounds.maxY - panelSize.height - margin, origin.y))
+
+        return origin
+    }
+
     // MARK: - 选择 → 粘贴流程
 
-    private func handleItemSelection(_ text: String) {
-        print("🎯 选中: \(text.prefix(40))")
-        print("   目标 App: \(previousApp?.localizedName ?? "<nil>") (\(previousApp?.bundleIdentifier ?? "<nil>"))")
-        print("   辅助功能权限: \(Paster.hasAccessibilityPermission ? "✅ 已授予" : "❌ 未授予")")
+    private func handleItemSelection(_ item: ClipboardItem) {
+        let targetApp = previousApp
+        print("🎯 选中条目，目标 App: \(targetApp?.localizedName ?? "<nil>")")
 
-        // 1. 写回系统剪贴板
+        // 写剪贴板 + 隐藏 panel + 模拟粘贴 整套包成一个 Task
+        // 因为图片场景需要 async 读盘
+        Task { @MainActor in
+            // 1. 写剪贴板（按类型分发）
+            switch item.kind {
+            case .text(let text):
+                writeTextToPasteboard(text)
+            case .image(let entry):
+                await writeImageToPasteboard(entry)
+            }
+
+            // 2. 隐藏 panel
+            hidePanel()
+
+            // 3. 激活目标 App
+            targetApp?.activate()
+
+            // 4. 等焦点切换完成
+            try? await Task.sleep(for: .milliseconds(80))
+
+            // 5. 模拟 ⌘V
+            Paster.simulatePaste()
+        }
+    }
+
+    private func writeTextToPasteboard(_ text: String) {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+    }
 
-        // 2. 记下要粘贴到哪个 App（隐藏 panel 后 frontmostApplication 可能变）
-        let targetApp = previousApp
+    // 写图片到剪贴板：同时写 PNG 数据 + 文件名文本作 fallback
+    // 多类型共存是 NSPasteboard 的正常用法，App 各取所需：
+    //   - 接受图片的 App（如 Pages、备忘录）→ 拿 PNG
+    //   - 不接受图片的 App（如 Terminal）→ 拿文本（文件名 + 尺寸）
+    private func writeImageToPasteboard(_ entry: ClipboardItem.ImageEntry) async {
+        let pb = NSPasteboard.general
+        pb.clearContents()
 
-        // 3. 隐藏 panel
-        hidePanel()
-
-        // 4. 显式激活目标 App，确保焦点回到它的输入框
-        //    然后等焦点真正切回去（系统调度需要时间），最后发 ⌘V
-        Task { @MainActor in
-            // NSRunningApplication.activate() —— macOS 14+ 推荐的新形式（无参数）
-            targetApp?.activate()
-            print("   → 已激活目标 App")
-
-            // 等焦点切换完成
-            try? await Task.sleep(for: .milliseconds(80))
-
-            Paster.simulatePaste()
+        // 从磁盘加载原图 PNG
+        guard let data = await watcher.loadImageData(filename: entry.filename) else {
+            print("⚠️ 图片文件丢失: \(entry.filename)")
+            pb.setString(entry.displayName, forType: .string)
+            return
         }
+
+        // 写 PNG 数据
+        pb.setData(data, forType: .png)
+
+        // 同时写描述文本作 fallback
+        let fallbackText = "\(entry.displayName) (\(entry.width)×\(entry.height))"
+        pb.setString(fallbackText, forType: .string)
     }
 
     // MARK: - 事件处理

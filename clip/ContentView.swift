@@ -4,7 +4,9 @@ import AppKit
 struct ContentView: View {
 
     let watcher: PasteboardWatcher
-    let onSelect: (String) -> Void
+    // 选中一条历史时的回调。改为传 ClipboardItem 而非 String，
+    // 因为图片场景 StatusBarController 需要 filename / displayName 等元数据
+    let onSelect: (ClipboardItem) -> Void
     let onDismiss: () -> Void
 
     @State private var selectedID: ClipboardItem.ID?
@@ -15,23 +17,11 @@ struct ContentView: View {
             content
             footer
         }
-        // 让 VStack 填满整个 panel（NSHostingView 的 frame 决定外尺寸）
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // macOS 26 的 Liquid Glass：和 Spotlight / 通知中心同款渲染管线
-        //
-        // 用 .clear 才能保留真正的液态玻璃质感
-        // .regular 配上 tint 之后磨砂底色叠加，反而像纯色块——透明感消失
-        // .clear 本身极透 → 配 0.35 黑色 tint 把对比度提到可读，同时保留玻璃感
-        //
-        // 参数调节：
-        //   tint opacity 0.25 = 偏透；0.35 = 中等可读；0.45 = 偏深可读；0.55+ = 接近不透
         .glassEffect(
             .clear.tint(.black.opacity(0.55)),
             in: RoundedRectangle(cornerRadius: 14)
         )
-        // 强制 panel 内部走 dark color scheme（不管系统主题）
-        // Spotlight 在亮色模式下也是这样：内容区永远是暗色调，文字才有保证
-        // .primary 在 dark 下自动变白色系，.secondary 变浅灰，对比度直接合格
         .preferredColorScheme(.dark)
         .focusable()
         .focusEffectDisabled()
@@ -58,7 +48,7 @@ struct ContentView: View {
                   digit - 1 < watcher.items.count else {
                 return .ignored
             }
-            onSelect(watcher.items[digit - 1].text)
+            onSelect(watcher.items[digit - 1])
             return .handled
         }
         .onAppear {
@@ -73,13 +63,11 @@ struct ContentView: View {
     private var header: some View {
         HStack(spacing: 0) {
             Text("剪贴板")
-                // 比 .headline 略小一点，更精致
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
 
             Spacer()
 
-            // 清空按钮：尺寸更小、颜色更柔和
             Button {
                 watcher.clear()
             } label: {
@@ -96,11 +84,11 @@ struct ContentView: View {
         .padding(.bottom, 8)
     }
 
-    // MARK: - Content (list or empty)
+    // MARK: - Content
 
     @ViewBuilder
     private var content: some View {
-        if watcher.items.isEmpty {
+        if watcher.items.isEmpty && !watcher.isProcessingImage {
             emptyState
         } else {
             itemList
@@ -126,14 +114,18 @@ struct ContentView: View {
     private var itemList: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                // 列表上下留 4pt，让首末项不贴着 header/footer
                 LazyVStack(spacing: 1) {
+                    // Loading 占位条：处理图片时出现在顶部
+                    if watcher.isProcessingImage {
+                        ProcessingRow()
+                    }
+
                     ForEach(Array(watcher.items.enumerated()), id: \.element.id) { index, item in
                         ItemRow(
                             item: item,
                             index: index,
                             isSelected: item.id == selectedID,
-                            onTap: { onSelect(item.text) }
+                            onTap: { onSelect(item) }
                         )
                         .id(item.id)
                     }
@@ -155,7 +147,6 @@ struct ContentView: View {
 
     private var footer: some View {
         HStack(spacing: 6) {
-            // 用 SF Symbols 表达快捷键，比纯文字更精致
             Text("\(watcher.items.count) 条")
             Text("·")
             Text("1-9 粘贴")
@@ -194,7 +185,7 @@ struct ContentView: View {
     private func triggerSelected() {
         guard let id = selectedID,
               let item = watcher.items.first(where: { $0.id == id }) else { return }
-        onSelect(item.text)
+        onSelect(item)
     }
 }
 
@@ -214,30 +205,19 @@ private struct ItemRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 10) {
-                // 序号：monospaced + medium，前 9 条显示，10+ 留空保持对齐
-                Text(hasShortcut ? "\(index + 1)" : "")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(numberColor)
-                    .frame(width: 14, alignment: .center)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.text)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .font(.system(size: 12))
-                        .foregroundStyle(isSelected ? .white : .primary)
-
-                    // 用我们自己的时间格式（"5 分钟前" 这种），比 SwiftUI 默认 "7 min, 9 sec" 干净
-                    Text(item.copiedAt.relativeShort)
-                        .font(.system(size: 10))
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.75) : Color.secondary.opacity(0.85))
+                shortcutBadge
+                // switch over Kind 决定渲染样式
+                // @ViewBuilder 接受 switch，分支返回不同 View 类型也 OK
+                switch item.kind {
+                case .text(let text):
+                    textContent(text)
+                case .image(let entry):
+                    imageContent(entry)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            // 关键：选中/hover 背景是"圆角块、左右内缩 4pt"，不再整行实色
-            // Spotlight 风的核心视觉之一
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(backgroundFill)
@@ -249,32 +229,124 @@ private struct ItemRow: View {
         .onHover { isHovered = $0 }
     }
 
-    private var numberColor: Color {
-        if isSelected { return Color.white.opacity(0.9) }
-        return Color.primary.opacity(0.35)
+    // MARK: - 子视图
+
+    private var shortcutBadge: some View {
+        Text(hasShortcut ? "\(index + 1)" : "")
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(numberColor)
+            .frame(width: 14, alignment: .center)
     }
 
-    // 注意：返回 Color 不返回 ShapeStyle，方便 RoundedRectangle.fill() 接受
+    private func textContent(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .font(.system(size: 12))
+                .foregroundStyle(isSelected ? .white : .primary)
+
+            Text(item.copiedAt.relativeShort)
+                .font(.system(size: 10))
+                .foregroundStyle(timeColor)
+        }
+    }
+
+    @ViewBuilder
+    private func imageContent(_ entry: ClipboardItem.ImageEntry) -> some View {
+        // 缩略图
+        Group {
+            if let nsImage = NSImage(data: entry.thumbnail) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                // 缩略图 Data 损坏时的兜底
+                Image(systemName: "photo")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 40, height: 40)
+        .background(Color.black.opacity(0.15))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+        VStack(alignment: .leading, spacing: 1) {
+            Text(entry.displayName)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .font(.system(size: 12))
+                .foregroundStyle(isSelected ? .white : .primary)
+
+            HStack(spacing: 4) {
+                Text("\(entry.width)×\(entry.height)")
+                Text("·")
+                Text(item.copiedAt.relativeShort)
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(timeColor)
+        }
+    }
+
+    // MARK: - 颜色
+
+    private var numberColor: Color {
+        isSelected ? Color.white.opacity(0.9) : Color.primary.opacity(0.35)
+    }
+
+    private var timeColor: Color {
+        isSelected ? Color.white.opacity(0.75) : Color.secondary.opacity(0.85)
+    }
+
     private var backgroundFill: Color {
-        if isSelected {
-            return .accentColor
-        }
-        if isHovered {
-            return .accentColor.opacity(0.12)
-        }
+        if isSelected { return .accentColor }
+        if isHovered { return .accentColor.opacity(0.12) }
         return .clear
     }
 }
 
-// MARK: - Date 扩展：中文化的相对时间
+// MARK: - 处理中占位条
+
+private struct ProcessingRow: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            // 序号位置：小 spinner
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 14, alignment: .center)
+
+            // 缩略图占位
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.white.opacity(0.08))
+                .frame(width: 40, height: 40)
+                .overlay {
+                    Image(systemName: "photo")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.tertiary)
+                }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("处理图片中…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Text("稍候片刻")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.white.opacity(0.04))
+                .padding(.horizontal, 4)
+        )
+    }
+}
+
+// MARK: - Date 扩展
 
 extension Date {
-    // 把"几秒/分钟/小时/天前"压缩成简短中文格式
-    // SwiftUI 内置的 Text(date, style: .relative) 输出 "7 min, 9 sec" 这种，又长又洋
-    // 我们自己写一个轻量替代
-    //
-    // 注意：这是同步快照，不会自动随时间更新
-    // 我们的浮窗每次重新打开会重新计算，对剪贴板工具来说足够了
     var relativeShort: String {
         let interval = Date().timeIntervalSince(self)
         switch interval {
