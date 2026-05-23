@@ -18,10 +18,24 @@ struct ContentView: View {
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // macOS 26 Liquid Glass —— 和 Spotlight / 通知中心同款渲染管线
+        //
+        // 已知问题：会触发一次 `_NSDetectedLayoutRecursion` warning（启动时打印一次）
+        // 经实验确认这是 SwiftUI 真模糊渲染管线 + NSHostingController 的 Apple bug
+        // 不只 .glassEffect()，所有"真模糊"路径都会触发：
+        //   - .glassEffect()
+        //   - .background(.ultraThinMaterial / .regularMaterial / ...)
+        //   - NSVisualEffectView
+        // 唯一不触发的是纯色背景，但视觉不可接受
+        // 这条 warning 只打印一次、不影响功能、是 Apple 自家 bug
+        //
+        // tint opacity 0.25 = 偏透；0.35 = 中等；0.45 = 偏深；0.55+ = 接近不透
         .glassEffect(
-            .clear.tint(.black.opacity(0.55)),
+            .clear.tint(.black.opacity(0.95)),
             in: RoundedRectangle(cornerRadius: 14)
         )
+        // 强制 panel 内部走 dark color scheme（不管系统主题）
+        // Spotlight 在亮色模式下也是这样：内容区永远是暗色调，文字才有保证
         .preferredColorScheme(.dark)
         .focusable()
         .focusEffectDisabled()

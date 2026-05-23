@@ -12,6 +12,11 @@ final class StatusBarController {
     private let panel: FloatingPanel
     private let watcher: PasteboardWatcher
 
+    // 强持有 NSHostingController：它持有的 view 是 panel.contentView
+    // 但 NSWindow 只弱持有 NSViewController，所以必须我们自己持有
+    // 不持有的话 controller 会被 ARC 释放，SwiftUI 状态丢失
+    private var hostingController: NSHostingController<ContentView>?
+
     private var globalMouseMonitor: Any?
 
     // 弹窗弹出时记下"原来在前台的 App"，关闭时把焦点还回去
@@ -59,13 +64,15 @@ final class StatusBarController {
         // 点击 item / 按钮不会误触拖动，恰好是我们想要的行为
         panel.isMovableByWindowBackground = true
 
-        // 注意：彻底拿掉了 NSVisualEffectView！
-        // 现在背景由 SwiftUI 用 macOS 26 的 .glassEffect() 直接渲染，等于走系统级 Liquid Glass 管线
-        // 顺带好处：层次简化，layout 递归 warning 大概率消失
+        // 背景由 SwiftUI 用 macOS 26 的 .glassEffect() 直接渲染（Liquid Glass 管线）
         //
-        // panel.contentView 直接是 NSHostingView，没中间层
-        // onSelect 改成接收完整 ClipboardItem
-        // 因为图片场景下需要 ImageEntry（filename / displayName 等），不光是字符串
+        // 用 NSHostingController 而不是 NSHostingView：
+        //   - NSHostingController 是 NSViewController 子类，对 SwiftUI 生命周期管理更完整
+        //   - 它在 view 即将 layout / 已 layout 等关键节点上有更细致的协调
+        //   - 经验上能解决"layout 中又触发 layout"的递归 warning
+        //   - Apple 在 macOS 14+ 推荐这种方式做 SwiftUI ↔ AppKit 嵌入
+        //
+        // onSelect 接收完整 ClipboardItem（图片需要 ImageEntry 元数据）
         let rootView = ContentView(
             watcher: watcher,
             onSelect: { [weak self] item in
@@ -75,11 +82,18 @@ final class StatusBarController {
                 self?.hidePanel()
             }
         )
-        let host = NSHostingView(rootView: rootView)
-        host.sizingOptions = []
-        host.frame = NSRect(origin: .zero, size: panelSize)
-        host.autoresizingMask = [.width, .height]
-        panel.contentView = host
+        let controller = NSHostingController(rootView: rootView)
+        // sizingOptions = []：不让 controller 把 SwiftUI 的尺寸偏好往外传
+        // 让 panel.contentRect 决定一切，避免 SwiftUI 内部尺寸协商反推外层 frame
+        controller.sizingOptions = []
+        controller.view.frame = NSRect(origin: .zero, size: panelSize)
+        // 让 controller 的 view 自动跟随 panel 尺寸变化（虽然我们目前不变 panel 尺寸）
+        controller.view.autoresizingMask = [.width, .height]
+
+        panel.contentView = controller.view
+
+        // 强持有 controller：NSWindow 只弱持有 viewController，不持有 ARC 会释放
+        self.hostingController = controller
     }
 
     private func configureStatusItem() {
