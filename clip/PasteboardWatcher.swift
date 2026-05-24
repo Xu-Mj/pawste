@@ -33,9 +33,12 @@ final class PasteboardWatcher {
     private static let maxItemsKey = "maxItems"
     private static let defaultMaxItems = 100
 
-    // 图片单独有数量上限，避免占太多磁盘
-    // 文本几 KB 一条无所谓，图片每张几百 KB
-    private let maxImages = 20
+    // 图片数量上限，从 UserDefaults 读，默认 20
+    // 文本几 KB 一条无所谓，图片每张几百 KB，单独限制
+    private(set) var maxImages: Int
+
+    private static let maxImagesKey = "maxImages"
+    private static let defaultMaxImages = 20
 
     private static let appDir: URL = {
         let appSupport = FileManager.default
@@ -57,6 +60,9 @@ final class PasteboardWatcher {
     init() {
         let stored = UserDefaults.standard.integer(forKey: Self.maxItemsKey)
         self.maxItems = stored > 0 ? stored : Self.defaultMaxItems
+
+        let storedImages = UserDefaults.standard.integer(forKey: Self.maxImagesKey)
+        self.maxImages = storedImages > 0 ? storedImages : Self.defaultMaxImages
 
         self.lastChangeCount = NSPasteboard.general.changeCount
         self.imageProcessor = ImageProcessor(imagesDir: Self.imagesDir)
@@ -104,18 +110,18 @@ final class PasteboardWatcher {
         guard n > 0, n != maxItems else { return }
         self.maxItems = n
         UserDefaults.standard.set(n, forKey: Self.maxItemsKey)
-        if items.count > n {
-            let toRemove = items[n...]
-            // 删图片文件
-            let filenames = toRemove.compactMap { $0.kind.asImage?.filename }
-            items = Array(items.prefix(n))
-            Task { [imageProcessor] in
-                for f in filenames {
-                    await imageProcessor.deleteFile(filename: f)
-                }
-            }
-            scheduleSave()
-        }
+        evictIfNeeded()  // 复用统一的裁剪逻辑，图片文件连带删
+        scheduleSave()
+        print("📐 文本上限改为 \(n)")
+    }
+
+    func setMaxImages(_ n: Int) {
+        guard n > 0, n != maxImages else { return }
+        self.maxImages = n
+        UserDefaults.standard.set(n, forKey: Self.maxImagesKey)
+        evictIfNeeded()
+        scheduleSave()
+        print("🖼️ 图片上限改为 \(n)")
     }
 
     func flushSave() {

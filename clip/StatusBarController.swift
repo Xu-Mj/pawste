@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import ServiceManagement   // SMAppService 注册登录项
 
 // 菜单栏图标 + 浮窗的总指挥
 @MainActor
@@ -16,6 +15,9 @@ final class StatusBarController {
     // 但 NSWindow 只弱持有 NSViewController，所以必须我们自己持有
     // 不持有的话 controller 会被 ARC 释放，SwiftUI 状态丢失
     private var hostingController: NSHostingController<ContentView>?
+
+    // 偏好设置窗口：第一次打开时懒加载，关闭后保留以便复用
+    private var settingsWindow: NSWindow?
 
     private var globalMouseMonitor: Any?
 
@@ -244,23 +246,21 @@ final class StatusBarController {
         }
     }
 
-    // MARK: - 右键菜单 + 开机自启动
+    // MARK: - 右键菜单
 
     private func showContextMenu() {
         guard let button = statusItem.button else { return }
 
         let menu = NSMenu()
 
-        // 开机自启动开关
-        let launchItem = NSMenuItem(
-            title: "开机自动启动",
-            action: #selector(toggleLaunchAtLogin),
-            keyEquivalent: ""
+        // 偏好设置入口
+        let prefItem = NSMenuItem(
+            title: "偏好设置…",
+            action: #selector(openSettings),
+            keyEquivalent: ","
         )
-        launchItem.target = self
-        // state: 控制菜单项左边那个 ✓ 标记
-        launchItem.state = isLaunchAtLoginEnabled ? .on : .off
-        menu.addItem(launchItem)
+        prefItem.target = self
+        menu.addItem(prefItem)
 
         menu.addItem(.separator())
 
@@ -272,9 +272,7 @@ final class StatusBarController {
         quitItem.target = self
         menu.addItem(quitItem)
 
-        // popUp(positioning:at:in:) 在指定 view 的指定坐标弹出菜单
-        // at: NSPoint 是相对 button 内部坐标（左下角原点）
-        // button.bounds.height 是顶端，菜单从这里向下展开
+        // popUp 在指定 view 的指定坐标弹出菜单
         menu.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: button.bounds.height + 4),
@@ -282,29 +280,35 @@ final class StatusBarController {
         )
     }
 
-    // 当前是否已注册开机自启动
-    // SMAppService.mainApp 是 macOS 13+ 的现代 API，对应自身这个 App
-    // .status 返回 .enabled / .notRegistered / .notFound / .requiresApproval
-    private var isLaunchAtLoginEnabled: Bool {
-        SMAppService.mainApp.status == .enabled
-    }
+    // 打开偏好设置窗口
+    //
+    // 完全用 AppKit NSWindow 管理（不走 SwiftUI Settings scene）
+    // 第一次调用时创建窗口，之后复用同一个窗口
+    //
+    // SwiftUI 的 SettingsView 嵌进 NSHostingView 里作为窗口内容
+    // SettingsView 内部不依赖 SwiftUI Environment（自己管理 SMAppService），独立运行无问题
+    @objc private func openSettings() {
+        NSApp.activate(ignoringOtherApps: true)
 
-    @objc private func toggleLaunchAtLogin() {
-        do {
-            if isLaunchAtLoginEnabled {
-                try SMAppService.mainApp.unregister()
-                print("🔕 已关闭开机自启动")
-            } else {
-                try SMAppService.mainApp.register()
-                print("🔔 已开启开机自启动")
-            }
-        } catch {
-            // 常见失败原因：
-            //   - 调试构建路径在 DerivedData 里，系统认为这不是合法 App
-            //   - 未签名 / 签名身份变化导致 TCC 拒绝
-            // 生产构建（放进 /Applications + 有 Developer ID 签名）就不会这样
-            print("⚠️ 自启动操作失败: \(error.localizedDescription)")
+        if settingsWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 380),
+                // .titled：标题栏；.closable：红色关闭按钮；.miniaturizable：黄色最小化按钮
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Clip 偏好设置"
+            window.contentView = NSHostingView(
+                rootView: SettingsView(watcher: watcher)
+            )
+            window.center()
+            // 关闭时不要释放，下次打开复用（避免重新创建 SwiftUI 状态树）
+            window.isReleasedWhenClosed = false
+            settingsWindow = window
         }
+
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func quitApp() {

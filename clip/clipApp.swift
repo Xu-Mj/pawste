@@ -15,10 +15,14 @@ struct ClipApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // App 协议要求至少一个 Scene
-        // Settings { } 是专门给"设置窗口"用的 scene，只在用户主动打开（如菜单栏的"偏好设置"）时才显示
-        // 现在我们还没做设置 UI，先放个空 EmptyView 占位
-        // 这意味着启动时没有任何窗口出现 —— 完美符合菜单栏 App 的语义
+        // 这里只是满足 App 协议"必须有至少一个 Scene"的要求
+        // 实际偏好设置窗口由 StatusBarController 用 AppKit NSWindow 直接管理
+        //
+        // 为什么不用 Settings { SettingsView(...) }：
+        //   - macOS 26 上 showSettingsWindow: selector 失效（变 no-op + 打 deprecation warning）
+        //   - Apple 推荐的 SettingsLink 是 SwiftUI View，无法从 AppKit NSMenu 调用
+        //   - 我们的 App 是 LSUIElement = YES（菜单栏 App），⌘, 也天然不工作
+        //   - 综合考虑：完全弃用 Settings scene，AppKit NSWindow 完全可控
         Settings {
             EmptyView()
         }
