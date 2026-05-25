@@ -13,10 +13,34 @@ struct ClipboardItem: Identifiable, Hashable, Codable {
     let kind: Kind
     let copiedAt: Date
 
+    // 是否置顶。置顶条目：
+    //   - 永远排在列表顶部
+    //   - 不计入 maxItems / maxImages 容量限制
+    //   - 不会被 evict 删除
+    // var（不是 let）：用户能切换状态
+    var isPinned: Bool
+
     init(kind: Kind) {
         self.id = UUID()
         self.kind = kind
         self.copiedAt = Date()
+        self.isPinned = false
+    }
+
+    // 自定义 Decoder 支持向后兼容
+    // 旧 JSON 没有 isPinned 字段，解码时默认 false
+    // 新保存的 JSON 会包含这个字段（Encodable 自动合成不变）
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.kind = try c.decode(Kind.self, forKey: .kind)
+        self.copiedAt = try c.decode(Date.self, forKey: .copiedAt)
+        // try? 转 Optional，?? false 兜底——老数据没这字段就当未置顶
+        self.isPinned = (try? c.decode(Bool.self, forKey: .isPinned)) ?? false
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, copiedAt, isPinned
     }
 
     enum Kind: Hashable, Codable {

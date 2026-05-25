@@ -10,6 +10,9 @@ struct ContentView: View {
     let onDismiss: () -> Void
 
     @State private var selectedID: ClipboardItem.ID?
+    // 显式滚动触发器：每次置顶切换 +1，让 itemList 知道"滚动到选中"
+    // 不能依赖 onChange(of: selectedID)，因为置顶时 selectedID 没变（同一 item 换位置）
+    @State private var scrollPing: Int = 0
 
     var body: some View {
         // 根据模式分发不同的内容视图，外层玻璃容器统一管理
@@ -60,6 +63,17 @@ struct ContentView: View {
         .onKeyPress(characters: CharacterSet(charactersIn: "\u{08}\u{7F}")) { _ in
             guard uiState.mode == .list else { return .ignored }
             deleteSelected()
+            return .handled
+        }
+        // ⌘P：切换选中条目的置顶状态
+        //
+        // SwiftUI .onKeyPress(_: KeyEquivalent) 的 action 闭包不带参数，没法检查 modifiers
+        // 必须用 characters: 这个 overload，它会传 KeyPress 进来，能拿 modifiers
+        // 这也和上面的数字键处理保持一致
+        .onKeyPress(characters: CharacterSet(charactersIn: "pP")) { press in
+            guard uiState.mode == .list else { return .ignored }
+            guard press.modifiers.contains(.command) else { return .ignored }
+            togglePinSelected()
             return .handled
         }
         .onKeyPress(.escape) {
@@ -179,7 +193,10 @@ struct ContentView: View {
                             item: item,
                             index: index,
                             isSelected: item.id == selectedID,
-                            onTap: { onSelect(item) }
+                            onTap: { onSelect(item) },
+                            // 鼠标点置顶图标：直接 toggle，不动 selection、不触发滚动
+                            // 用户能看到点的是哪一个，没必要再滚或选
+                            onPinToggle: { watcher.togglePin(id: item.id) }
                         )
                         .id(item.id)
                     }
@@ -190,6 +207,15 @@ struct ContentView: View {
                 guard let id = newID else { return }
                 Task { @MainActor in
                     withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+            }
+            // 显式滚动触发器（用于置顶后 selectedID 没变但位置变了的场景）
+            .onChange(of: scrollPing) { _, _ in
+                guard let id = selectedID else { return }
+                Task { @MainActor in
+                    withAnimation(.easeOut(duration: 0.15)) {
                         proxy.scrollTo(id, anchor: .center)
                     }
                 }
@@ -216,6 +242,10 @@ struct ContentView: View {
             Image(systemName: "delete.left")
                 .font(.system(size: 9))
             Text("删除")
+            Text("·")
+            Image(systemName: "pin")
+                .font(.system(size: 9))
+            Text("⌘P 置顶")
             Spacer()
             Button("退出") {
                 NSApplication.shared.terminate(nil)
@@ -244,6 +274,14 @@ struct ContentView: View {
         guard let id = selectedID,
               let item = watcher.items.first(where: { $0.id == id }) else { return }
         onSelect(item)
+    }
+
+    // 切换选中条目的置顶状态（键盘 ⌘P 路径）
+    // selectedID 不变（同一 item），但位置变了，所以单独 ping 一下让列表滚动到它
+    private func togglePinSelected() {
+        guard let id = selectedID else { return }
+        watcher.togglePin(id: id)
+        scrollPing += 1
     }
 
     // 删除当前选中条目，并把选中转移到下一条
@@ -278,36 +316,82 @@ private struct ItemRow: View {
     let index: Int
     let isSelected: Bool
     let onTap: () -> Void
+    let onPinToggle: () -> Void  // 鼠标点 pin 图标时触发
 
     @State private var isHovered = false
 
     private var hasShortcut: Bool { index < 9 }
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 10) {
-                shortcutBadge
-                // switch over Kind 决定渲染样式
-                // @ViewBuilder 接受 switch，分支返回不同 View 类型也 OK
-                switch item.kind {
-                case .text(let text):
-                    textContent(text)
-                case .image(let entry):
-                    imageContent(entry)
-                }
+        // 整体改用 onTapGesture 而不是 Button：
+        // 原因：要在行内嵌一个独立可点击的 pin Button
+        // SwiftUI 里 Button 套 Button 点击事件会冲突
+        // 改成"外层 onTapGesture + 内层 Button"，Button 的点击区域优先于 onTapGesture，互不干扰
+        HStack(spacing: 10) {
+            shortcutBadge
+
+            switch item.kind {
+            case .text(let text):
+                textContent(text)
+            case .image(let entry):
+                imageContent(entry)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(backgroundFill)
-                    .padding(.horizontal, 4)
-            )
-            .contentShape(Rectangle())
+
+            Spacer(minLength: 4)
+
+            pinButton
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(backgroundFill)
+                .padding(.horizontal, 4)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
         .onHover { isHovered = $0 }
+    }
+
+    // 置顶图标按钮
+    //
+    // 显示规则：
+    //   - 置顶项：常驻显示填充版 pin.fill（让用户一眼看到置顶状态，点击取消）
+    //   - 非置顶项：只在 hover 时显示空心 pin（暗示"可以点这里置顶"）
+    @ViewBuilder
+    private var pinButton: some View {
+        if item.isPinned {
+            // 置顶项：常驻填充图标，点击取消置顶
+            Button {
+                onPinToggle()
+            } label: {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(pinColor)
+                    // 固定宽度，防止显示/隐藏时其他内容跳动
+                    .frame(width: 14, alignment: .center)
+            }
+            .buttonStyle(.plain)
+            .help("取消置顶 (⌘P)")
+        } else if isHovered {
+            // 非置顶 + hover：显示空心图标，点击置顶
+            Button {
+                onPinToggle()
+            } label: {
+                Image(systemName: "pin")
+                    .font(.system(size: 11))
+                    .foregroundStyle(pinColor)
+                    .frame(width: 14, alignment: .center)
+            }
+            .buttonStyle(.plain)
+            .help("置顶 (⌘P)")
+        } else {
+            // 非置顶 + 没 hover：占位空 view，保持其他内容布局稳定
+            Color.clear.frame(width: 14, height: 14)
+        }
     }
 
     // MARK: - 子视图
@@ -378,6 +462,10 @@ private struct ItemRow: View {
         isSelected ? Color.white.opacity(0.75) : Color.secondary.opacity(0.85)
     }
 
+    private var pinColor: Color {
+        isSelected ? Color.white.opacity(0.85) : Color.secondary
+    }
+
     private var backgroundFill: Color {
         if isSelected { return .accentColor }
         if isHovered { return .accentColor.opacity(0.12) }
@@ -431,10 +519,8 @@ extension Date {
     var relativeShort: String {
         let interval = Date().timeIntervalSince(self)
         switch interval {
-        case ..<5:
-            return "刚刚"
         case ..<60:
-            return "\(Int(interval)) 秒前"
+            return "刚刚"
         case ..<3600:
             return "\(Int(interval / 60)) 分钟前"
         case ..<86400:

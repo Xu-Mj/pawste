@@ -90,6 +90,34 @@ final class PasteboardWatcher {
         timer = nil
     }
 
+    // 切换某条历史的置顶状态
+    //
+    // 置顶 → 移到列表最顶（置顶组的开头）
+    // 取消置顶 → 移到"非置顶组"的开头（即所有现有置顶项之后的第一位）
+    @discardableResult
+    func togglePin(id: ClipboardItem.ID) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+
+        var item = items.remove(at: index)
+        item.isPinned.toggle()
+
+        if item.isPinned {
+            // 置顶：移到最顶
+            items.insert(item, at: 0)
+            print("📌 已置顶")
+        } else {
+            // 取消置顶：移到非置顶组的开头
+            // remove 之后 pinnedCount 是"剩下的置顶数"，正好是插入点
+            items.insert(item, at: pinnedCount)
+            print("📌 已取消置顶")
+        }
+
+        scheduleSave()
+        return true
+    }
+
     // 删除单条历史
     // 返回值：删除成功（true）/ 没找到（false）
     // 删除图片条目时会连带删磁盘文件
@@ -280,11 +308,16 @@ final class PasteboardWatcher {
 
     private func addText(_ text: String) {
         if let existingIndex = items.firstIndex(where: { $0.kind.asText == text }) {
+            // 已存在：保留 isPinned 状态，移到所属组的开头
+            //   - 原本置顶 → 移到列表最顶（置顶组开头）
+            //   - 原本非置顶 → 移到非置顶组开头（即所有置顶之后）
             let existing = items.remove(at: existingIndex)
-            items.insert(existing, at: 0)
+            let insertIndex = existing.isPinned ? 0 : pinnedCount
+            items.insert(existing, at: insertIndex)
             print("🔄 重排文本到顶部")
         } else {
-            items.insert(ClipboardItem(kind: .text(text)), at: 0)
+            // 新内容总是非置顶，插入"非置顶组"的开头
+            items.insert(ClipboardItem(kind: .text(text)), at: pinnedCount)
             evictIfNeeded()
             print("➕ 新文本 (共 \(items.count) 条)")
         }
@@ -302,7 +335,9 @@ final class PasteboardWatcher {
         if let path = sourcePath,
            let existingIndex = items.firstIndex(where: { $0.kind.asImage?.sourcePath == path }) {
             let existing = items.remove(at: existingIndex)
-            items.insert(existing, at: 0)
+            // 保留置顶状态：置顶 → 顶部；非置顶 → 非置顶组开头
+            let insertIndex = existing.isPinned ? 0 : pinnedCount
+            items.insert(existing, at: insertIndex)
             print("🔄 重排图片（按 sourcePath）到顶部: \(path)")
             scheduleSave()
             return
@@ -335,8 +370,9 @@ final class PasteboardWatcher {
             }
 
             // 这里已经回到主线程，安全修改 items
+            // 新图片总是非置顶，插入到"非置顶组"的开头（即所有置顶之后）
             let item = ClipboardItem(kind: .image(entry))
-            self.items.insert(item, at: 0)
+            self.items.insert(item, at: self.pinnedCount)
             self.evictIfNeeded()
             self.scheduleSave()
         }
@@ -344,24 +380,26 @@ final class PasteboardWatcher {
 
     // MARK: - 容量管理
 
-    // 同时执行两条容量规则：
-    //   1. 图片数 > maxImages → 删最老的图片
-    //   2. 总条数 > maxItems → 删最末（最老的，不分类型）
-    //
-    // 顺序先图片再总数：避免"先按总数删了一张图片"再发现还得删另一张
+    // 容量规则（置顶条目不计入限制、不会被 evict）：
+    //   1. 非置顶图片数 > maxImages → 删最老的非置顶图片
+    //   2. 非置顶总数 > maxItems → 删最末的非置顶条目
     private func evictIfNeeded() {
         // 规则 1：图片数量上限
-        // items 是 newest-first，所以 lastIndex(where:) 找到的是最老的图片
-        while imageCount > maxImages {
-            guard let oldestImageIndex = items.lastIndex(where: { $0.kind.asImage != nil }) else {
-                break  // 没图片可删了（理论不会发生，防御写法）
+        while nonPinnedImageCount > maxImages {
+            guard let oldestImageIndex = items.lastIndex(where: {
+                $0.kind.asImage != nil && !$0.isPinned
+            }) else {
+                break
             }
             removeItem(at: oldestImageIndex)
         }
 
         // 规则 2：总数上限
-        while items.count > maxItems {
-            removeItem(at: items.count - 1)
+        while nonPinnedCount > maxItems {
+            guard let lastNonPinnedIndex = items.lastIndex(where: { !$0.isPinned }) else {
+                break
+            }
+            removeItem(at: lastNonPinnedIndex)
         }
     }
 
@@ -376,9 +414,23 @@ final class PasteboardWatcher {
         }
     }
 
-    // 当前图片条目数
-    // 用 lazy 避免创建中间数组（小数据集影响微乎其微，但好习惯）
+    // 当前图片条目数（不分置顶/非置顶，用于 loadFromDisk 日志）
     private var imageCount: Int {
         items.lazy.filter { $0.kind.asImage != nil }.count
+    }
+
+    // 置顶条目数（用于排序时定位"非置顶组的开头"）
+    private var pinnedCount: Int {
+        items.lazy.filter { $0.isPinned }.count
+    }
+
+    // 非置顶条目数（用于容量判断）
+    private var nonPinnedCount: Int {
+        items.count - pinnedCount
+    }
+
+    // 非置顶图片条目数（用于图片容量判断）
+    private var nonPinnedImageCount: Int {
+        items.lazy.filter { $0.kind.asImage != nil && !$0.isPinned }.count
     }
 }
