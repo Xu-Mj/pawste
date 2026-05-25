@@ -1,0 +1,48 @@
+# macOS 系统文件
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Xcode 用户私有 / 临时
+*.xcuserstate
+xcuserdata/
+*.xcuserdatad/
+*.moved-aside
+DerivedData/
+build/
+*.xcscmblueprint
+*.xccheckout
+
+# Swift Package Manager
+.swiftpm/
+.build/
+Packages/
+Package.pins
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# 偶尔被 IDE 写入的临时
+*.swp
+*~
+.idea/
+.vscode/
+
+# 编译产物
+*.o
+*.a
+*.dylib
+
+# fastlane / CI
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# 个人 OAuth/keys 之类（防御性）
+.env
+*.pem
+*.p12
+
+# 历史数据 / 缩略图（如果你不小心放进项目目录的话）
+Clip/history.json
+Clip/images/
