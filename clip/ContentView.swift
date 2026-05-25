@@ -50,6 +50,18 @@ struct ContentView: View {
             triggerSelected()
             return .handled
         }
+        // Delete 键：删除选中条目
+        //
+        // 关键陷阱：SwiftUI 的 KeyEquivalent.delete 实际是 \u{7F} (forward delete)
+        // 而 Mac 上日常 ⌫ 键发的是 \u{08} (BS, backspace 风格)
+        // 用 character set 同时匹配两种字符，覆盖所有"删除"键场景
+        //
+        // 删除后选中智能转移：尽量保持位置不变（即原 index 的下一条），列表为空则 nil
+        .onKeyPress(characters: CharacterSet(charactersIn: "\u{08}\u{7F}")) { _ in
+            guard uiState.mode == .list else { return .ignored }
+            deleteSelected()
+            return .handled
+        }
         .onKeyPress(.escape) {
             // .settings 模式下 Esc 切回 list（不关 popup）
             // .list 模式下 Esc 关 popup
@@ -200,6 +212,10 @@ struct ContentView: View {
             Image(systemName: "return")
                 .font(.system(size: 9))
             Text("粘贴")
+            Text("·")
+            Image(systemName: "delete.left")
+                .font(.system(size: 9))
+            Text("删除")
             Spacer()
             Button("退出") {
                 NSApplication.shared.terminate(nil)
@@ -228,6 +244,29 @@ struct ContentView: View {
         guard let id = selectedID,
               let item = watcher.items.first(where: { $0.id == id }) else { return }
         onSelect(item)
+    }
+
+    // 删除当前选中条目，并把选中转移到下一条
+    //
+    // 选中转移策略（参考 Mail、Finder 等系统 App）：
+    //   - 删的不是末位 → 选中原 index（自然变成原来的下一条）
+    //   - 删的是末位 → 选中新的末位（向上移一位）
+    //   - 删后空了 → selectedID = nil
+    private func deleteSelected() {
+        guard let id = selectedID else { return }
+        guard let oldIndex = watcher.items.firstIndex(where: { $0.id == id }) else { return }
+
+        watcher.deleteItem(id: id)
+
+        // 删完后 watcher.items 已经少一项，决定新的 selectedID
+        let newItems = watcher.items
+        if newItems.isEmpty {
+            selectedID = nil
+        } else {
+            // 原 index 在新数组里的同位置就是"下一条"；如果超出末位则取末位
+            let newIndex = min(oldIndex, newItems.count - 1)
+            selectedID = newItems[newIndex].id
+        }
     }
 }
 

@@ -90,6 +90,35 @@ final class PasteboardWatcher {
         timer = nil
     }
 
+    // 删除单条历史
+    // 返回值：删除成功（true）/ 没找到（false）
+    // 删除图片条目时会连带删磁盘文件
+    @discardableResult
+    func deleteItem(id: ClipboardItem.ID) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        let removed = items.remove(at: index)
+
+        // 图片类型：删磁盘文件
+        if let entry = removed.kind.asImage {
+            let filename = entry.filename
+            Task { [imageProcessor] in
+                await imageProcessor.deleteFile(filename: filename)
+            }
+        }
+
+        // 如果删的是最近一张图（指纹还在），清掉指纹避免下次复制相同内容被误判为重复
+        if removed.kind.asImage != nil {
+            lastImageSize = nil
+            lastImagePrefix = nil
+        }
+
+        print("🗑️ 删除条目（剩 \(items.count) 条）")
+        scheduleSave()
+        return true
+    }
+
     func clear() {
         // 清空 items 前，把所有图片文件也删了
         let imageFilenames = items.compactMap { $0.kind.asImage?.filename }
