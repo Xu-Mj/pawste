@@ -100,8 +100,14 @@ final class StatusBarController {
 
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
+        // 候选 SF Symbol：
+        //   doc.on.clipboard / doc.on.clipboard.fill —— 文档放剪贴板上
+        //   list.clipboard / list.clipboard.fill     —— 清单 + 剪贴板（管理器语义）
+        //   rectangle.on.rectangle.fill              —— 两方块叠加（复制感）
+        //   paperclip                                —— 回形针（"Clip"双关）
+        // 改 systemSymbolName 字符串即可切换
         button.image = NSImage(
-            systemSymbolName: "doc.on.clipboard",
+            systemSymbolName: "list.clipboard.fill",
             accessibilityDescription: "剪贴板历史"
         )
         button.action = #selector(handleStatusItemClick)
