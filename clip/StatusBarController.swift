@@ -11,18 +11,16 @@ final class StatusBarController {
     private let panel: FloatingPanel
     private let watcher: PasteboardWatcher
 
-    // 强持有 NSHostingController：它持有的 view 是 panel.contentView
-    // 但 NSWindow 只弱持有 NSViewController，所以必须我们自己持有
-    // 不持有的话 controller 会被 ARC 释放，SwiftUI 状态丢失
+    // 强持有 NSHostingController（NSWindow 只弱引用 viewController）
     private var hostingController: NSHostingController<ContentView>?
 
-    // 偏好设置窗口：第一次打开时懒加载，关闭后保留以便复用
-    private var settingsWindow: NSWindow?
+    // 共享 UI 状态（list / settings 模式切换）
+    // 让我们能从 AppKit 侧（右键菜单"偏好设置"）改变 SwiftUI 侧的视图模式
+    private let uiState = PanelUIState()
 
     private var globalMouseMonitor: Any?
 
     // 弹窗弹出时记下"原来在前台的 App"，关闭时把焦点还回去
-    // 这样我们能精准把模拟的 ⌘V 送到对的 App
     private var previousApp: NSRunningApplication?
 
     // 浮窗固定尺寸
@@ -75,8 +73,10 @@ final class StatusBarController {
         //   - Apple 在 macOS 14+ 推荐这种方式做 SwiftUI ↔ AppKit 嵌入
         //
         // onSelect 接收完整 ClipboardItem（图片需要 ImageEntry 元数据）
+        // uiState 传进去，让 SwiftUI 能根据模式切换 list / settings 视图
         let rootView = ContentView(
             watcher: watcher,
+            uiState: uiState,
             onSelect: { [weak self] item in
                 self?.handleItemSelection(item)
             },
@@ -112,9 +112,17 @@ final class StatusBarController {
     // MARK: - 显示控制
 
     func togglePanel() {
+        // 不管什么模式，⌥+V / 状态栏点击都按"clipboard list"模式打开
+        // 如果当前在 settings 模式，切回 list；如果已经是 list，按原逻辑 toggle
+        if panel.isVisible && uiState.mode == .settings {
+            uiState.mode = .list
+            return
+        }
+
         if panel.isVisible {
             hidePanel()
         } else {
+            uiState.mode = .list   // 保证打开时是 list 模式
             showPanel()
         }
     }
@@ -237,8 +245,6 @@ final class StatusBarController {
     // MARK: - 事件处理
 
     @objc private func handleStatusItemClick() {
-        // 区分左右键：左键开关浮窗，右键弹设置菜单
-        // NSApp.currentEvent 在 action 回调里能拿到触发的那个事件
         if NSApp.currentEvent?.type == .rightMouseDown {
             showContextMenu()
         } else {
@@ -253,17 +259,9 @@ final class StatusBarController {
 
         let menu = NSMenu()
 
-        // 偏好设置入口
-        let prefItem = NSMenuItem(
-            title: "偏好设置…",
-            action: #selector(openSettings),
-            keyEquivalent: ","
-        )
-        prefItem.target = self
-        menu.addItem(prefItem)
-
-        menu.addItem(.separator())
-
+        // 注意：偏好设置入口已经移到 popup 里面的齿轮按钮
+        // 不在这里加，因为"NSMenu action → 新 panel"的事件转换会让 panel 进入半 key 状态
+        // 右键菜单现在只留"退出"
         let quitItem = NSMenuItem(
             title: "退出 Clip",
             action: #selector(quitApp),
@@ -272,43 +270,21 @@ final class StatusBarController {
         quitItem.target = self
         menu.addItem(quitItem)
 
-        // popUp 在指定 view 的指定坐标弹出菜单
         menu.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: button.bounds.height + 4),
             in: button
         )
+
+        // 清 highlighted 状态
+        button.isHighlighted = false
     }
 
-    // 打开偏好设置窗口
-    //
-    // 完全用 AppKit NSWindow 管理（不走 SwiftUI Settings scene）
-    // 第一次调用时创建窗口，之后复用同一个窗口
-    //
-    // SwiftUI 的 SettingsView 嵌进 NSHostingView 里作为窗口内容
-    // SettingsView 内部不依赖 SwiftUI Environment（自己管理 SMAppService），独立运行无问题
+    // openSettings 已废弃：偏好设置入口移到了 popup 内部的齿轮按钮
+    // 保留这个方法只是因为 #selector 不容易完全清除，留个 noop 也无害
+    // 实际触发现在是 SwiftUI 内 uiState.mode = .settings 直接切换
     @objc private func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-
-        if settingsWindow == nil {
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 460, height: 380),
-                // .titled：标题栏；.closable：红色关闭按钮；.miniaturizable：黄色最小化按钮
-                styleMask: [.titled, .closable, .miniaturizable],
-                backing: .buffered,
-                defer: false
-            )
-            window.title = "Clip 偏好设置"
-            window.contentView = NSHostingView(
-                rootView: SettingsView(watcher: watcher)
-            )
-            window.center()
-            // 关闭时不要释放，下次打开复用（避免重新创建 SwiftUI 状态树）
-            window.isReleasedWhenClosed = false
-            settingsWindow = window
-        }
-
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        // 已不再使用
     }
 
     @objc private func quitApp() {

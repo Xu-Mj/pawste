@@ -4,58 +4,64 @@ import AppKit
 struct ContentView: View {
 
     let watcher: PasteboardWatcher
-    // 选中一条历史时的回调。改为传 ClipboardItem 而非 String，
-    // 因为图片场景 StatusBarController 需要 filename / displayName 等元数据
+    // 共享 UI 状态（list / settings 模式切换），由 StatusBarController 注入
+    let uiState: PanelUIState
     let onSelect: (ClipboardItem) -> Void
     let onDismiss: () -> Void
 
     @State private var selectedID: ClipboardItem.ID?
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            content
-            footer
+        // 根据模式分发不同的内容视图，外层玻璃容器统一管理
+        // 这样切换模式时玻璃不闪烁，焦点、键盘事件等也都在同一个 view tree 里
+        Group {
+            switch uiState.mode {
+            case .list:
+                listMode
+            case .settings:
+                SettingsView(
+                    watcher: watcher,
+                    onBack: { uiState.mode = .list }
+                )
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // macOS 26 Liquid Glass —— 和 Spotlight / 通知中心同款渲染管线
-        //
-        // 已知问题：会触发一次 `_NSDetectedLayoutRecursion` warning（启动时打印一次）
-        // 经实验确认这是 SwiftUI 真模糊渲染管线 + NSHostingController 的 Apple bug
-        // 不只 .glassEffect()，所有"真模糊"路径都会触发：
-        //   - .glassEffect()
-        //   - .background(.ultraThinMaterial / .regularMaterial / ...)
-        //   - NSVisualEffectView
-        // 唯一不触发的是纯色背景，但视觉不可接受
-        // 这条 warning 只打印一次、不影响功能、是 Apple 自家 bug
-        //
-        // tint opacity 0.25 = 偏透；0.35 = 中等；0.45 = 偏深；0.55+ = 接近不透
         .glassEffect(
             .clear.tint(.black.opacity(0.95)),
             in: RoundedRectangle(cornerRadius: 14)
         )
-        // 强制 panel 内部走 dark color scheme（不管系统主题）
-        // Spotlight 在亮色模式下也是这样：内容区永远是暗色调，文字才有保证
         .preferredColorScheme(.dark)
+        // 键盘事件 + onAppear 只在 .list 模式生效
+        // .settings 模式有自己的 Esc 处理（在 SettingsView 里）
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.upArrow) {
+            guard uiState.mode == .list else { return .ignored }
             moveSelection(by: -1)
             return .handled
         }
         .onKeyPress(.downArrow) {
+            guard uiState.mode == .list else { return .ignored }
             moveSelection(by: 1)
             return .handled
         }
         .onKeyPress(.return) {
+            guard uiState.mode == .list else { return .ignored }
             triggerSelected()
             return .handled
         }
         .onKeyPress(.escape) {
-            onDismiss()
+            // .settings 模式下 Esc 切回 list（不关 popup）
+            // .list 模式下 Esc 关 popup
+            if uiState.mode == .settings {
+                uiState.mode = .list
+            } else {
+                onDismiss()
+            }
             return .handled
         }
         .onKeyPress(characters: CharacterSet(charactersIn: "123456789")) { press in
+            guard uiState.mode == .list else { return .ignored }
             guard let firstChar = press.characters.first,
                   let digit = firstChar.wholeNumberValue,
                   (1...9).contains(digit),
@@ -72,15 +78,37 @@ struct ContentView: View {
         }
     }
 
+    // 剪贴板列表模式的整体布局
+    private var listMode: some View {
+        VStack(spacing: 0) {
+            header
+            content
+            footer
+        }
+    }
+
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 12) {
             Text("剪贴板")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
 
             Spacer()
+
+            // 偏好设置入口（齿轮）
+            // 不再通过右键菜单进入 settings，因为 NSMenu action → 新 panel 的过渡会让 panel 进入半 key 状态
+            // 直接在 popup 里切模式则没有任何窗口/key 状态变化，所有事件路由保持稳定
+            Button {
+                uiState.mode = .settings
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("偏好设置")
 
             Button {
                 watcher.clear()

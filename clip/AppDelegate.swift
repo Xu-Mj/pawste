@@ -35,7 +35,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // [weak self]：捕获 self 时声明弱引用，避免循环引用（虽然 AppDelegate 几乎永远存活，但好习惯）
         KeyboardShortcuts.onKeyDown(for: .toggleClip) { [weak self] in
             self?.statusBarController?.togglePanel()
-            print("⌨️ 触发快捷键 toggleClip")
         }
 
         print("🚀 Clip 启动完成，全局快捷键 ⌥+V 已注册")
