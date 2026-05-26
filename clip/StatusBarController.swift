@@ -225,27 +225,23 @@ final class StatusBarController {
         pb.setString(text, forType: .string)
     }
 
-    // 写图片到剪贴板：同时写 PNG 数据 + 文件名文本作 fallback
-    // 多类型共存是 NSPasteboard 的正常用法，App 各取所需：
-    //   - 接受图片的 App（如 Pages、备忘录）→ 拿 PNG
-    //   - 不接受图片的 App（如 Terminal）→ 拿文本（文件名 + 尺寸）
+    // 写图片到剪贴板：只写 PNG 数据，不写 fallback 文本
+    //
+    // 之前同时写 PNG + 文件名文本，结果"文本优先"的 App（备忘录、TextEdit、Notion）
+    // 把文件名而不是图片粘出来。用户明确要求"只粘图片不粘名称"。
+    //
+    // 副作用：粘到完全不支持图片的 App（Terminal）时什么都不发生
+    // —— 这是合理的，用户知道终端粘不了图
     private func writeImageToPasteboard(_ entry: ClipboardItem.ImageEntry) async {
         let pb = NSPasteboard.general
         pb.clearContents()
 
-        // 从磁盘加载原图 PNG
         guard let data = await watcher.loadImageData(filename: entry.filename) else {
             print("⚠️ 图片文件丢失: \(entry.filename)")
-            pb.setString(entry.displayName, forType: .string)
-            return
+            return  // 文件丢失就什么都不写，simulatePaste 等于 no-op
         }
 
-        // 写 PNG 数据
         pb.setData(data, forType: .png)
-
-        // 同时写描述文本作 fallback
-        let fallbackText = "\(entry.displayName) (\(entry.width)×\(entry.height))"
-        pb.setString(fallbackText, forType: .string)
     }
 
     // MARK: - 事件处理
@@ -265,9 +261,19 @@ final class StatusBarController {
 
         let menu = NSMenu()
 
-        // 注意：偏好设置入口已经移到 popup 里面的齿轮按钮
-        // 不在这里加，因为"NSMenu action → 新 panel"的事件转换会让 panel 进入半 key 状态
-        // 右键菜单现在只留"退出"
+        // 关于 Clip 暂时注释掉：和之前 settings 一样栽在"NSMenu action → 新窗口"过渡 bug 上
+        // 系统标准 About 面板从这条路径触发也会进入半 key 状态
+        // 将来改成"嵌进 popup 的 .about 模式"（类似 settings）就能彻底绕开
+        //
+        // let aboutItem = NSMenuItem(
+        //     title: "关于 Clip",
+        //     action: #selector(showAbout),
+        //     keyEquivalent: ""
+        // )
+        // aboutItem.target = self
+        // menu.addItem(aboutItem)
+        // menu.addItem(.separator())
+
         let quitItem = NSMenuItem(
             title: "退出 Clip",
             action: #selector(quitApp),
@@ -282,8 +288,55 @@ final class StatusBarController {
             in: button
         )
 
-        // 清 highlighted 状态
         button.isHighlighted = false
+    }
+
+    // 关于 Clip：直接用系统标准 About 面板
+    //
+    // 为什么不自画一个：
+    //   - 系统 About 面板长得就是 macOS 用户熟悉的样子（App 图标 + 版本 + credits）
+    //   - 自动读 Info.plist 的 CFBundleShortVersionString / CFBundleVersion 字段
+    //   - 不像我们之前 settings 的自定义窗口，About 是只读 + transient，焦点问题不重要
+    //   - 一行 API 搞定
+    //
+    // credits 接 NSAttributedString，可以塞富文本和超链接（.link 属性）
+    @objc private func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .credits: aboutCredits()
+        ])
+    }
+
+    private func aboutCredits() -> NSAttributedString {
+        let credits = NSMutableAttributedString()
+
+        let bodyAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.labelColor
+        ]
+        let secondaryAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        let linkAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .link: URL(string: "https://github.com/Xu-Mj/clip")!
+        ]
+
+        credits.append(NSAttributedString(
+            string: "Spotlight 风的 macOS 剪贴板管理器\n\n",
+            attributes: bodyAttrs
+        ))
+        credits.append(NSAttributedString(
+            string: "GitHub: ",
+            attributes: secondaryAttrs
+        ))
+        credits.append(NSAttributedString(
+            string: "Xu-Mj/clip",
+            attributes: linkAttrs
+        ))
+
+        return credits
     }
 
     // openSettings 已废弃：偏好设置入口移到了 popup 内部的齿轮按钮

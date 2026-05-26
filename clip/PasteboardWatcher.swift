@@ -40,6 +40,12 @@ final class PasteboardWatcher {
     private static let maxImagesKey = "maxImages"
     private static let defaultMaxImages = 20
 
+    // 置顶条数上限（可配）
+    private(set) var maxPinned: Int
+
+    private static let maxPinnedKey = "maxPinned"
+    private static let defaultMaxPinned = 5
+
     private static let appDir: URL = {
         let appSupport = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
@@ -63,6 +69,9 @@ final class PasteboardWatcher {
 
         let storedImages = UserDefaults.standard.integer(forKey: Self.maxImagesKey)
         self.maxImages = storedImages > 0 ? storedImages : Self.defaultMaxImages
+
+        let storedPinned = UserDefaults.standard.integer(forKey: Self.maxPinnedKey)
+        self.maxPinned = storedPinned > 0 ? storedPinned : Self.defaultMaxPinned
 
         self.lastChangeCount = NSPasteboard.general.changeCount
         self.imageProcessor = ImageProcessor(imagesDir: Self.imagesDir)
@@ -94,9 +103,17 @@ final class PasteboardWatcher {
     //
     // 置顶 → 移到列表最顶（置顶组的开头）
     // 取消置顶 → 移到"非置顶组"的开头（即所有现有置顶项之后的第一位）
+    //
+    // 返回 false：当前没有该 ID / 已达置顶上限无法再置顶
     @discardableResult
     func togglePin(id: ClipboardItem.ID) -> Bool {
         guard let index = items.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+
+        // 检查上限：如果当前非置顶 + 已经达到 maxPinned → 静默拒绝
+        if !items[index].isPinned && pinnedCount >= maxPinned {
+            print("⚠️ 置顶已满（\(maxPinned) 条），无法再置顶")
             return false
         }
 
@@ -106,16 +123,25 @@ final class PasteboardWatcher {
         if item.isPinned {
             // 置顶：移到最顶
             items.insert(item, at: 0)
-            print("📌 已置顶")
+            print("📌 已置顶 (共 \(pinnedCount) 条)")
         } else {
             // 取消置顶：移到非置顶组的开头
-            // remove 之后 pinnedCount 是"剩下的置顶数"，正好是插入点
             items.insert(item, at: pinnedCount)
             print("📌 已取消置顶")
         }
 
         scheduleSave()
         return true
+    }
+
+    // 获取所有置顶条目（按当前顺序）
+    var pinnedItems: [ClipboardItem] {
+        items.filter { $0.isPinned }
+    }
+
+    // 获取所有非置顶条目（按当前顺序）
+    var unpinnedItems: [ClipboardItem] {
+        items.filter { !$0.isPinned }
     }
 
     // 删除单条历史
@@ -179,6 +205,26 @@ final class PasteboardWatcher {
         evictIfNeeded()
         scheduleSave()
         print("🖼️ 图片上限改为 \(n)")
+    }
+
+    func setMaxPinned(_ n: Int) {
+        guard n > 0, n != maxPinned else { return }
+        self.maxPinned = n
+        UserDefaults.standard.set(n, forKey: Self.maxPinnedKey)
+        print("📌 置顶上限改为 \(n)")
+        // 如果当前已置顶数 > 新上限，超出部分取消置顶（最末的先）
+        // 这样用户调小上限不会出现"超出但还显示着"的尴尬状态
+        while pinnedCount > maxPinned {
+            // 找最后一条置顶（在置顶组的末尾位置）
+            if let lastPinnedIndex = items.lastIndex(where: { $0.isPinned }) {
+                var item = items.remove(at: lastPinnedIndex)
+                item.isPinned = false
+                items.insert(item, at: pinnedCount)
+            } else {
+                break
+            }
+        }
+        scheduleSave()
     }
 
     func flushSave() {

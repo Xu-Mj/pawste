@@ -15,6 +15,7 @@ struct SettingsView: View {
 
     @State private var maxItems: Int
     @State private var maxImages: Int
+    @State private var maxPinned: Int
     @State private var launchAtLogin: Bool
 
     // 快捷键录制模式：true 时显示 Recorder，false 时显示只读字串
@@ -26,6 +27,7 @@ struct SettingsView: View {
         self.onBack = onBack
         _maxItems = State(initialValue: watcher.maxItems)
         _maxImages = State(initialValue: watcher.maxImages)
+        _maxPinned = State(initialValue: watcher.maxPinned)
         _launchAtLogin = State(initialValue: SMAppService.mainApp.status == .enabled)
     }
 
@@ -171,6 +173,17 @@ struct SettingsView: View {
             }
             .onChange(of: maxImages) { _, newValue in
                 watcher.setMaxImages(newValue)
+            }
+
+            Stepper(value: $maxPinned, in: 1...20, step: 1) {
+                LabeledContent("置顶条数上限") {
+                    Text("\(maxPinned)")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .onChange(of: maxPinned) { _, newValue in
+                watcher.setMaxPinned(newValue)
             }
         }
     }

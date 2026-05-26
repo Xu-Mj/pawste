@@ -90,16 +90,26 @@ struct ContentView: View {
             guard uiState.mode == .list else { return .ignored }
             guard let firstChar = press.characters.first,
                   let digit = firstChar.wholeNumberValue,
-                  (1...9).contains(digit),
-                  digit - 1 < watcher.items.count else {
+                  (1...9).contains(digit) else {
                 return .ignored
             }
-            onSelect(watcher.items[digit - 1])
+
+            // ⌘1-5 → 触发置顶项；不带 ⌘ 的 1-9 → 触发列表项
+            if press.modifiers.contains(.command) {
+                let pinned = watcher.pinnedItems
+                guard digit - 1 < pinned.count else { return .ignored }
+                onSelect(pinned[digit - 1])
+            } else {
+                let unpinned = watcher.unpinnedItems
+                guard digit - 1 < unpinned.count else { return .ignored }
+                onSelect(unpinned[digit - 1])
+            }
             return .handled
         }
         .onAppear {
             Task { @MainActor in
-                selectedID = watcher.items.first?.id
+                // 默认选中第一个非置顶项（置顶不参与键盘导航）
+                selectedID = watcher.unpinnedItems.first?.id
             }
         }
     }
@@ -108,8 +118,34 @@ struct ContentView: View {
     private var listMode: some View {
         VStack(spacing: 0) {
             header
+            pinnedSection
             content
             footer
+        }
+    }
+
+    // 置顶区：水平滚动的 chip 行
+    // 0 条置顶时折叠不显示
+    // chip 固定宽度，多余的横向滚动查看（鼠标拖动滚动条 / trackpad 横向手势）
+    @ViewBuilder
+    private var pinnedSection: some View {
+        let pinned = watcher.pinnedItems
+        if !pinned.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(pinned.enumerated()), id: \.element.id) { index, item in
+                        PinnedChip(
+                            item: item,
+                            index: index,
+                            onTap: { onSelect(item) },
+                            onUnpin: { watcher.togglePin(id: item.id) }
+                        )
+                        .frame(width: 100)   // 固定宽度，太窄看不清，太宽放不下
+                    }
+                }
+                .padding(.horizontal, 10)
+            }
+            .padding(.bottom, 6)
         }
     }
 
@@ -188,14 +224,13 @@ struct ContentView: View {
                         ProcessingRow()
                     }
 
-                    ForEach(Array(watcher.items.enumerated()), id: \.element.id) { index, item in
+                    // 列表区只显示非置顶项（置顶项在 pinnedSection 单独渲染）
+                    ForEach(Array(watcher.unpinnedItems.enumerated()), id: \.element.id) { index, item in
                         ItemRow(
                             item: item,
                             index: index,
                             isSelected: item.id == selectedID,
                             onTap: { onSelect(item) },
-                            // 鼠标点置顶图标：直接 toggle，不动 selection、不触发滚动
-                            // 用户能看到点的是哪一个，没必要再滚或选
                             onPinToggle: { watcher.togglePin(id: item.id) }
                         )
                         .id(item.id)
@@ -227,24 +262,20 @@ struct ContentView: View {
 
     private var footer: some View {
         HStack(spacing: 6) {
-            Text("\(watcher.items.count) 条")
+            Text("\(watcher.unpinnedItems.count) 条")
             Text("·")
             Text("1-9 粘贴")
+            Text("·")
+            Text("⌘1-5 置顶")
             Text("·")
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 9))
             Text("选择")
             Text("·")
-            Image(systemName: "return")
-                .font(.system(size: 9))
-            Text("粘贴")
-            Text("·")
             Image(systemName: "delete.left")
                 .font(.system(size: 9))
             Text("删除")
             Text("·")
-            Image(systemName: "pin")
-                .font(.system(size: 9))
             Text("⌘P 置顶")
             Spacer()
             Button("退出") {
@@ -263,7 +294,8 @@ struct ContentView: View {
     // MARK: - 选择逻辑
 
     private func moveSelection(by delta: Int) {
-        let items = watcher.items
+        // 键盘导航只在非置顶列表里走
+        let items = watcher.unpinnedItems
         guard !items.isEmpty else { return }
         let currentIndex = items.firstIndex(where: { $0.id == selectedID }) ?? 0
         let newIndex = max(0, min(items.count - 1, currentIndex + delta))
@@ -277,7 +309,8 @@ struct ContentView: View {
     }
 
     // 切换选中条目的置顶状态（键盘 ⌘P 路径）
-    // selectedID 不变（同一 item），但位置变了，所以单独 ping 一下让列表滚动到它
+    // watcher.togglePin 内部已有上限检查，超限时会 print warning 并返回 false（静默）
+    // 用户调高上限可在偏好设置里
     private func togglePinSelected() {
         guard let id = selectedID else { return }
         watcher.togglePin(id: id)
@@ -292,16 +325,16 @@ struct ContentView: View {
     //   - 删后空了 → selectedID = nil
     private func deleteSelected() {
         guard let id = selectedID else { return }
-        guard let oldIndex = watcher.items.firstIndex(where: { $0.id == id }) else { return }
+        // 在"非置顶列表"里找位置（置顶不参与键盘选中，也不会被这条路径删）
+        guard let oldIndex = watcher.unpinnedItems.firstIndex(where: { $0.id == id }) else { return }
 
         watcher.deleteItem(id: id)
 
-        // 删完后 watcher.items 已经少一项，决定新的 selectedID
-        let newItems = watcher.items
+        // 删完后重新拿非置顶列表，决定新的 selectedID
+        let newItems = watcher.unpinnedItems
         if newItems.isEmpty {
             selectedID = nil
         } else {
-            // 原 index 在新数组里的同位置就是"下一条"；如果超出末位则取末位
             let newIndex = min(oldIndex, newItems.count - 1)
             selectedID = newItems[newIndex].id
         }
@@ -426,7 +459,6 @@ private struct ItemRow: View {
                     .resizable()
                     .scaledToFit()
             } else {
-                // 缩略图 Data 损坏时的兜底
                 Image(systemName: "photo")
                     .foregroundStyle(.secondary)
             }
@@ -435,20 +467,16 @@ private struct ItemRow: View {
         .background(Color.black.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: 6))
 
+        // 不再显示 displayName（自动生成的 "Screenshot_xxx.png" 没阅读价值）
+        // 第一行展示尺寸，第二行展示时间，结构和文本行保持一致
         VStack(alignment: .leading, spacing: 1) {
-            Text(entry.displayName)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            Text("\(entry.width) × \(entry.height)")
                 .font(.system(size: 12))
                 .foregroundStyle(isSelected ? .white : .primary)
 
-            HStack(spacing: 4) {
-                Text("\(entry.width)×\(entry.height)")
-                Text("·")
-                Text(item.copiedAt.relativeShort)
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(timeColor)
+            Text(item.copiedAt.relativeShort)
+                .font(.system(size: 10))
+                .foregroundStyle(timeColor)
         }
     }
 
