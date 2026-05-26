@@ -64,6 +64,7 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .help("返回剪贴板")
+            .pointerCursor()
 
             Text("偏好设置")
                 .font(.system(size: 13, weight: .semibold))
@@ -120,6 +121,7 @@ struct SettingsView: View {
                     isRecordingShortcut = true
                 }
                 .controlSize(.small)
+                .pointerCursor()
             }
         }
     }
@@ -141,6 +143,7 @@ struct SettingsView: View {
                 }
                 .controlSize(.small)
                 .keyboardShortcut(.defaultAction)
+                .pointerCursor()
             }
         }
     }

@@ -126,7 +126,8 @@ struct ContentView: View {
 
     // 置顶区：水平滚动的 chip 行
     // 0 条置顶时折叠不显示
-    // chip 固定宽度，多余的横向滚动查看（鼠标拖动滚动条 / trackpad 横向手势）
+    // chip 宽度由 PinnedChip 自管理：文本 100、图片 32（正方形）
+    // 多余的横向滚动查看（鼠标拖动滚动条 / trackpad 横向手势）
     @ViewBuilder
     private var pinnedSection: some View {
         let pinned = watcher.pinnedItems
@@ -140,7 +141,6 @@ struct ContentView: View {
                             onTap: { onSelect(item) },
                             onUnpin: { watcher.togglePin(id: item.id) }
                         )
-                        .frame(width: 100)   // 固定宽度，太窄看不清，太宽放不下
                     }
                 }
                 .padding(.horizontal, 10)
@@ -171,6 +171,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderless)
             .help("偏好设置")
+            .pointerCursor()
 
             Button {
                 watcher.clear()
@@ -182,6 +183,7 @@ struct ContentView: View {
             .buttonStyle(.borderless)
             .disabled(watcher.items.isEmpty)
             .help("清空历史")
+            .pointerCursor()
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -260,23 +262,32 @@ struct ContentView: View {
 
     // MARK: - Footer
 
+    // 间距 4（之前 6）：HStack 在 360 宽 popup 里偏紧，缩 2pt 让 13 个子元素能塞下
+    // 每个 Text 都加 .fixedSize 禁止 SwiftUI 自动换行
+    //   ── 之前 "1-9 粘贴" / "⌘1-5 置顶" 含空格被自动拆两行，破坏风格统一
     private var footer: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Text("\(watcher.unpinnedItems.count) 条")
+                .fixedSize(horizontal: true, vertical: false)
             Text("·")
             Text("1-9 粘贴")
+                .fixedSize(horizontal: true, vertical: false)
             Text("·")
             Text("⌘1-5 置顶")
+                .fixedSize(horizontal: true, vertical: false)
             Text("·")
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 9))
             Text("选择")
+                .fixedSize(horizontal: true, vertical: false)
             Text("·")
             Image(systemName: "delete.left")
                 .font(.system(size: 9))
             Text("删除")
+                .fixedSize(horizontal: true, vertical: false)
             Text("·")
             Text("⌘P 置顶")
+                .fixedSize(horizontal: true, vertical: false)
             Spacer()
             Button("退出") {
                 NSApplication.shared.terminate(nil)
@@ -284,6 +295,7 @@ struct ContentView: View {
             .keyboardShortcut("q")
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .pointerCursor()
         }
         .font(.system(size: 10))
         .foregroundStyle(.tertiary)

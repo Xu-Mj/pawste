@@ -47,6 +47,7 @@ struct ItemRow: View {
             onTap()
         }
         .onHover { isHovered = $0 }
+        .pointerCursor()
     }
 
     // 置顶图标按钮
@@ -69,6 +70,7 @@ struct ItemRow: View {
             }
             .buttonStyle(.plain)
             .help("取消置顶 (⌘P)")
+            .pointerCursor()
         } else if isHovered {
             // 非置顶 + hover：显示空心图标，点击置顶
             Button {
@@ -81,6 +83,7 @@ struct ItemRow: View {
             }
             .buttonStyle(.plain)
             .help("置顶 (⌘P)")
+            .pointerCursor()
         } else {
             // 非置顶 + 没 hover：占位空 view，保持其他内容布局稳定
             Color.clear.frame(width: 14, height: 14)
@@ -98,7 +101,9 @@ struct ItemRow: View {
 
     private func textContent(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(text)
+            // 显示时裁掉前后空白/换行，避免开头是空行时 lineLimit(1) 显示空
+            // item.kind 里的原始 text 保持不变，粘贴时用的还是完整内容
+            Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .font(.system(size: 12))
