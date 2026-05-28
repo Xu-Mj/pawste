@@ -101,9 +101,10 @@ struct ItemRow: View {
 
     private func textContent(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            // 显示时裁掉前后空白/换行，避免开头是空行时 lineLimit(1) 显示空
-            // item.kind 里的原始 text 保持不变，粘贴时用的还是完整内容
-            Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            // 显示压成单行预览：去前后空白 + 内部换行 → ↵ 可见符号
+            // 避免单字 + 多换行内容看起来像只复制了一个字
+            // 原始 text 不动，粘贴时仍是完整内容（含换行）
+            Text(text.displayPreview)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .font(.system(size: 12))

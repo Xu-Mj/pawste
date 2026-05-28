@@ -147,6 +147,9 @@ final class StatusBarController {
         // .nonactivatingPanel + FloatingPanel.canBecomeKey 让 panel 能收键盘事件但不抢 App 焦点
         panel.makeKeyAndOrderFront(nil)
 
+        // 通知 SwiftUI 侧"窗口刚打开了"，让搜索框等瞬时状态重置
+        uiState.openCount &+= 1
+
         installEventMonitors()
     }
 

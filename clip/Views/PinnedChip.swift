@@ -101,12 +101,10 @@ struct PinnedChip: View {
 
     // 文字左对齐铺满；右侧 padding 留出 badge 区域避免重叠
     //
-    // 显示前裁前后空白，再把内部换行替换成空格做单行预览
+    // 显示压成单行预览：内部换行 → ↵ 可见符号（不是空格）
     // 原始内容（item.kind 里的 String）不动，粘贴时还是完整文本
     private func textBody(_ text: String) -> some View {
-        Text(text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\n", with: " "))
+        Text(text.displayPreview)
             .font(.system(size: 11))
             .lineLimit(1)
             .truncationMode(.tail)
