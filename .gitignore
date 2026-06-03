@@ -44,5 +44,5 @@ fastlane/test_output
 *.p12
 
 # 历史数据 / 缩略图（如果你不小心放进项目目录的话）
-Clip/history.json
-Clip/images/
+Pawste/history.json
+Pawste/images/

@@ -32,7 +32,7 @@ jobs:
 
       # 提前解析 SPM 依赖（KeyboardShortcuts），失败能更早暴露
       - name: Resolve Swift packages
-        run: xcodebuild -resolvePackageDependencies -project clip.xcodeproj -scheme clip
+        run: xcodebuild -resolvePackageDependencies -project Pawste.xcodeproj -scheme Pawste
 
       # Release 构建 + 全程关闭签名（CI 上没有开发者证书）
       # generic/platform=macOS：不绑定具体设备，按 SDK 架构构建
@@ -40,8 +40,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build \
-            -project clip.xcodeproj \
-            -scheme clip \
+            -project Pawste.xcodeproj \
+            -scheme Pawste \
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -derivedDataPath build \
@@ -55,12 +55,12 @@ jobs:
       - name: Package app
         run: |
           cd build/Build/Products/Release
-          ditto -c -k --keepParent clip.app clip.zip
+          ditto -c -k --keepParent Pawste.app Pawste.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: clip-app-unsigned
-          path: build/Build/Products/Release/clip.zip
+          name: pawste-app-unsigned
+          path: build/Build/Products/Release/Pawste.zip
           if-no-files-found: error
           retention-days: 14

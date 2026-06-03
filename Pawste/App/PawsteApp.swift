@@ -7,7 +7,7 @@ import SwiftUI
 // - 保留 SwiftUI App 生命周期的好处（可以用 @Environment、@AppStorage 等）
 // - AppKit 和 SwiftUI 不是非此即彼，可以混搭，这是 Apple 推荐的现代模式
 @main
-struct ClipApp: App {
+struct PawsteApp: App {
 
     // @NSApplicationDelegateAdaptor：SwiftUI 和 AppKit 生命周期的官方桥梁
     // 它会创建一个 AppDelegate 实例，并把所有 NSApplicationDelegate 回调路由给它

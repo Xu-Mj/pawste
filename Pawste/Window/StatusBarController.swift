@@ -104,7 +104,7 @@ final class StatusBarController {
         //   doc.on.clipboard / doc.on.clipboard.fill —— 文档放剪贴板上
         //   list.clipboard / list.clipboard.fill     —— 清单 + 剪贴板（管理器语义）
         //   rectangle.on.rectangle.fill              —— 两方块叠加（复制感）
-        //   paperclip                                —— 回形针（"Clip"双关）
+        //   pawprint.fill                            —— 猫爪（呼应 Pawste 名字）
         // 改 systemSymbolName 字符串即可切换
         button.image = NSImage(
             systemSymbolName: "list.clipboard.fill",
@@ -264,11 +264,11 @@ final class StatusBarController {
 
         let menu = NSMenu()
 
-        // 关于 Clip：现在切到 popup 的 .about 模式（不再开独立窗口）
+        // 关于 Pawste：现在切到 popup 的 .about 模式（不再开独立窗口）
         // 之前注释掉是因为"NSMenu action → 新 About 窗口"会进入半 key 状态、影响剪贴板
         // 改成复用现有 panel 切模式后，没有第二个窗口，那一类焦点问题彻底消失
         let aboutItem = NSMenuItem(
-            title: "关于 Clip",
+            title: "关于 Pawste",
             action: #selector(showAbout),
             keyEquivalent: ""
         )
@@ -277,7 +277,7 @@ final class StatusBarController {
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
-            title: "退出 Clip",
+            title: "退出 Pawste",
             action: #selector(quitApp),
             keyEquivalent: "q"
         )
@@ -293,7 +293,7 @@ final class StatusBarController {
         button.isHighlighted = false
     }
 
-    // 关于 Clip：切到 popup 的 .about 模式（嵌入式，不开独立窗口）
+    // 关于 Pawste：切到 popup 的 .about 模式（嵌入式，不开独立窗口）
     //
     // 复用现有 panel：设 mode = .about，再确保 panel 可见
     // showPanel() 内部会 bump openCount，触发 ContentView 重置搜索/选中（mode 不动）

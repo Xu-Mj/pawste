@@ -51,7 +51,7 @@ struct ClipboardItem: Identifiable, Hashable, Codable {
     // 图片条目元数据
     //
     // 注意：原图二进制不存这里，只存元数据 + 缩略图
-    // 原图存在磁盘 ~/Library/Application Support/Clip/images/<filename>
+    // 原图存在磁盘 ~/Library/Application Support/Pawste/images/<filename>
     struct ImageEntry: Hashable, Codable {
         // 我们自己的存储文件名，"<uuid>.png"，全局唯一
         let filename: String

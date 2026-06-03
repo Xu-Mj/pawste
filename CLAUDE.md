@@ -4,26 +4,26 @@
 
 ## 项目是什么
 
-**Clip** —— 一个 macOS 26 (Tahoe) 的剪贴板管理器。菜单栏 App，全局快捷键 `⌥V` 唤出 Spotlight 风格的浮窗，列表展示文本/图片历史，回车自动粘贴到原 App。
+**Pawste** —— 一个 macOS 26 (Tahoe) 的剪贴板管理器。菜单栏 App，全局快捷键 `⌥V` 唤出 Spotlight 风格的浮窗，列表展示文本/图片历史，回车自动粘贴到原 App。
 
 技术栈：Swift 6 + SwiftUI + AppKit + Swift Concurrency。
 
 ## 怎么跑
 
-- Xcode 打开 `clip.xcodeproj`，⌘R
-- 首次按 Enter 粘贴时系统会弹"辅助功能权限"对话框，到 系统设置 → 隐私与安全性 → 辅助功能 里加入 clip
-- 命令行构建：`xcodebuild -project clip.xcodeproj -scheme clip -configuration Debug build`
+- Xcode 打开 `Pawste.xcodeproj`，⌘R
+- 首次按 Enter 粘贴时系统会弹"辅助功能权限"对话框，到 系统设置 → 隐私与安全性 → 辅助功能 里加入 Pawste
+- 命令行构建：`xcodebuild -project Pawste.xcodeproj -scheme Pawste -configuration Debug build`
 
 ## 工程结构
 
-Xcode 项目用的是 **`PBXFileSystemSynchronizedRootGroup`** —— `clip/` 下任何文件夹/文件 Xcode 自动收录，**不需要手动维护 `.pbxproj`**。新增/移动文件只动磁盘就行（`Info.plist` 是 membership exception，已配置）。
+Xcode 项目用的是 **`PBXFileSystemSynchronizedRootGroup`** —— `Pawste/` 下任何文件夹/文件 Xcode 自动收录，**不需要手动维护 `.pbxproj`**。新增/移动文件只动磁盘就行（`Info.plist` 是 membership exception，已配置）。
 
 按"层"组织目录（依赖方向：App → Window → Views → Services → Models）：
 
 ```
-clip/
+Pawste/
 ├── App/         入口 + 生命周期
-│   ├── clipApp.swift           SwiftUI @main，桥接 AppDelegate
+│   ├── PawsteApp.swift           SwiftUI @main，桥接 AppDelegate
 │   ├── AppDelegate.swift       AppKit 生命周期，启动 watcher + 注册全局快捷键
 │   └── GlobalShortcuts.swift   KeyboardShortcuts 库的快捷键命名
 ├── Models/      纯数据
@@ -59,7 +59,7 @@ LSUIElement App + 独立 NSWindow/NSPanel 会撞一连串焦点问题（`canBeco
 Recorder 控件渲染时会**自动暂停全局 hotkey**（库的内部行为）。如果常驻 settings 表单里 → ⌥V 一进设置就废。**正解**：默认只读显示当前快捷键 + "修改"按钮，点修改才挂 Recorder，录完销毁。
 
 ### 3. 图片不内联 JSON
-原图二进制存 `~/Library/Application Support/Clip/images/<uuid>.png`，JSON 里只存元数据 + 40×40 缩略图。100 张图 × 500KB = 50MB JSON 会卡启动。
+原图二进制存 `~/Library/Application Support/Pawste/images/<uuid>.png`，JSON 里只存元数据 + 40×40 缩略图。100 张图 × 500KB = 50MB JSON 会卡启动。
 
 ### 4. 邻接去重，不要全局 hash
 全局 SHA256 同步 5-500ms 不可接受。当前只对"上一次"做 size + 前 256 字节比较，覆盖"误按两次 ⌘C"99% 场景。同一图复制多次会产生多份文件——这是用户明确同意的取舍（磁盘代价 < 响应延迟）。
@@ -73,7 +73,7 @@ SwiftUI + NSHostingController + 任何"真模糊"渲染（`.glassEffect`、NSVis
 ## 持久化文件位置
 
 ```
-~/Library/Application Support/Clip/
+~/Library/Application Support/Pawste/
 ├── history.json          所有条目元数据（含缩略图 base64）
 └── images/               原图 PNG，<uuid>.png
 ```
@@ -92,13 +92,13 @@ UserDefaults 存配置：`maxItems` / `maxImages` / `maxPinned` / KeyboardShortc
 
 ```bash
 # 编译验证
-xcodebuild -project clip.xcodeproj -scheme clip -configuration Debug build -quiet
+xcodebuild -project Pawste.xcodeproj -scheme Pawste -configuration Debug build -quiet
 
 # 行数统计（看哪个文件膨胀了）
-find clip -name "*.swift" -type f | xargs wc -l | sort -n
+find Pawste -name "*.swift" -type f | xargs wc -l | sort -n
 
 # 清干净 DerivedData（辅助功能权限错乱时偶尔需要）
-rm -rf ~/Library/Developer/Xcode/DerivedData/clip-*
+rm -rf ~/Library/Developer/Xcode/DerivedData/Pawste-*
 ```
 
 ## 相关文档

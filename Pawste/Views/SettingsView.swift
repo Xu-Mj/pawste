@@ -129,7 +129,7 @@ struct SettingsView: View {
     // 录制态：Recorder + "完成"按钮
     private var recordingMode: some View {
         VStack(alignment: .leading, spacing: 8) {
-            KeyboardShortcuts.Recorder("呼出剪贴板：", name: .toggleClip)
+            KeyboardShortcuts.Recorder("呼出剪贴板：", name: .togglePawste)
 
             HStack {
                 Text("点上面字段，按下你想要的快捷键组合")
@@ -151,7 +151,7 @@ struct SettingsView: View {
     // 当前快捷键的可视化字符串
     // KeyboardShortcuts.Shortcut 的 description 给出像 "⌥V" 这种简洁形式
     private var currentShortcutDisplay: String {
-        KeyboardShortcuts.getShortcut(for: .toggleClip)?.description ?? "未设置"
+        KeyboardShortcuts.getShortcut(for: .togglePawste)?.description ?? "未设置"
     }
 
     private var capacitySection: some View {

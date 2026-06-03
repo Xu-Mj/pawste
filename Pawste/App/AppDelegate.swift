@@ -33,11 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 内部用的是 Carbon HotKey API，不需要"辅助功能权限"
         //
         // [weak self]：捕获 self 时声明弱引用，避免循环引用（虽然 AppDelegate 几乎永远存活，但好习惯）
-        KeyboardShortcuts.onKeyDown(for: .toggleClip) { [weak self] in
+        KeyboardShortcuts.onKeyDown(for: .togglePawste) { [weak self] in
             self?.statusBarController?.togglePanel()
         }
 
-        print("🚀 Clip 启动完成，全局快捷键 ⌥+V 已注册")
+        print("🚀 Pawste 启动完成，全局快捷键 ⌥+V 已注册")
     }
 
     // App 即将退出时调用
@@ -46,6 +46,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 关键：同步落盘，确保最后的变更被保存
         // 防抖保存可能还在 1 秒等待中，不 flush 就会丢
         watcher.flushSave()
-        print("👋 Clip 退出，历史已保存")
+        print("👋 Pawste 退出，历史已保存")
     }
 }

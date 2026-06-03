@@ -20,7 +20,7 @@ struct AboutView: View {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
     }
 
-    private let githubURL = URL(string: "https://github.com/Xu-Mj/clip")!
+    private let githubURL = URL(string: "https://github.com/Xu-Mj/pawste")!
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,7 +88,7 @@ struct AboutView: View {
                 )
 
             VStack(spacing: 3) {
-                Text("Clip")
+                Text("Pawste")
                     .font(.system(size: 20, weight: .semibold))
 
                 Text("版本 \(version) (\(build))")
@@ -112,7 +112,7 @@ struct AboutView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "link")
                         .font(.system(size: 10))
-                    Text("Xu-Mj/clip")
+                    Text("Xu-Mj/pawste")
                         .font(.system(size: 11))
                 }
                 .foregroundStyle(.tint)

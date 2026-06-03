@@ -1,4 +1,4 @@
-# Clip 项目复盘
+# Pawste 项目复盘
 
 > 一个 macOS 剪贴板管理器从无到有的工程决策日志。
 >
@@ -96,7 +96,7 @@ SwiftUI 在 macOS 14+ 已经成熟，但**菜单栏 App** 这种场景天然偏 
 
 ### 踩过的坑
 - **辅助功能权限调试期反复失效**——每次 rebuild，Xcode 把二进制路径换到不同的 DerivedData 子目录，系统 TCC 记录的是旧路径
-  - **解决**：在系统设置里手动添加 Clip.app 路径。生产签名构建（Developer ID）不会有这问题
+  - **解决**：在系统设置里手动添加 Pawste.app 路径。生产签名构建（Developer ID）不会有这问题
 - **时序敏感**：必须先 `previousApp?.activate()` + `Task.sleep(.milliseconds(80))` 才发 `CGEvent`，太快了焦点还在我们 App 上
 - **多种"删除键"**：`KeyEquivalent.delete` 实际是 `\u{7F}` (forward delete)，Mac 上 ⌫ 键发的是 `\u{08}` (BS)——`.onKeyPress(.delete)` 完全匹配不上 ⌫。用 `.onKeyPress(characters: CharacterSet)` 才行
 
@@ -196,7 +196,7 @@ macOS NSPasteboard **完全没有 push 通知 API**（iOS 有 `UIPasteboardChang
 
 #### v4：`NSWindow + setActivationPolicy(.regular) + 关闭时切回 .accessory`
 - 暴力激活
-- 问题 1：Dock 短暂出现 Clip 图标
+- 问题 1：Dock 短暂出现 Pawste 图标
 - 问题 2：状态栏图标卡在"选中"视觉
 - 问题 3：popup 视觉变灰（App 状态污染）
 - 问题 4：⌘P / ⌫ 等列表键盘事件也异常
@@ -218,7 +218,7 @@ macOS NSPasteboard **完全没有 push 通知 API**（iOS 有 `UIPasteboardChang
 ## 7. About 窗口（同样的坑，被避开了）
 
 ### 决策
-**右键菜单"关于 Clip"暂时不做**，相关代码以注释保留。
+**右键菜单"关于 Pawste"暂时不做**，相关代码以注释保留。
 
 ### 上下文
 做完设置面板的 v5 后，做 About 窗口，沿用 `NSApp.orderFrontStandardAboutPanel()` 系统标准 API。结果——
@@ -275,7 +275,7 @@ macOS NSPasteboard **完全没有 push 通知 API**（iOS 有 `UIPasteboardChang
 
 ```swift
 if isRecordingShortcut {
-    KeyboardShortcuts.Recorder("...", name: .toggleClip)  // 录制时挂
+    KeyboardShortcuts.Recorder("...", name: .togglePawste)  // 录制时挂
 } else {
     Text("⌥V") + Button("修改")  // 平时显示
 }
@@ -291,7 +291,7 @@ if isRecordingShortcut {
 ## 10. 持久化：JSON + 外部图片文件
 
 ### 决策
-**JSON 存历史元数据（含缩略图 base64 内联），原图存 `~/.../Clip/images/<uuid>.png` 单独文件。**
+**JSON 存历史元数据（含缩略图 base64 内联），原图存 `~/.../Pawste/images/<uuid>.png` 单独文件。**
 
 ### 上下文
 SQLite 工程量过大（schema + 库依赖），UserDefaults 不适合数组数据，Property List 不如 JSON 可读。
