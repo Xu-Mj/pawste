@@ -13,6 +13,7 @@ final class PanelUIState {
     enum Mode {
         case list      // 剪贴板列表
         case settings  // 偏好设置
+        case about     // 关于
     }
 
     var mode: Mode = .list

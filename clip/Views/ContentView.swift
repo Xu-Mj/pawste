@@ -59,6 +59,10 @@ struct ContentView: View {
                     watcher: watcher,
                     onBack: { uiState.mode = .list }
                 )
+            case .about:
+                AboutView(
+                    onBack: { uiState.mode = .list }
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -115,8 +119,8 @@ struct ContentView: View {
             return .handled
         }
         .onKeyPress(.escape) {
-            // .settings 模式：切回 list
-            if uiState.mode == .settings {
+            // 非 list 模式（settings / about）：切回 list
+            if uiState.mode != .list {
                 uiState.mode = .list
                 return .handled
             }

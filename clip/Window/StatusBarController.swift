@@ -119,8 +119,8 @@ final class StatusBarController {
 
     func togglePanel() {
         // 不管什么模式，⌥+V / 状态栏点击都按"clipboard list"模式打开
-        // 如果当前在 settings 模式，切回 list；如果已经是 list，按原逻辑 toggle
-        if panel.isVisible && uiState.mode == .settings {
+        // 当前在非 list 模式（settings / about）且可见 → 切回 list（不关窗）
+        if panel.isVisible && uiState.mode != .list {
             uiState.mode = .list
             return
         }
@@ -264,18 +264,17 @@ final class StatusBarController {
 
         let menu = NSMenu()
 
-        // 关于 Clip 暂时注释掉：和之前 settings 一样栽在"NSMenu action → 新窗口"过渡 bug 上
-        // 系统标准 About 面板从这条路径触发也会进入半 key 状态
-        // 将来改成"嵌进 popup 的 .about 模式"（类似 settings）就能彻底绕开
-        //
-        // let aboutItem = NSMenuItem(
-        //     title: "关于 Clip",
-        //     action: #selector(showAbout),
-        //     keyEquivalent: ""
-        // )
-        // aboutItem.target = self
-        // menu.addItem(aboutItem)
-        // menu.addItem(.separator())
+        // 关于 Clip：现在切到 popup 的 .about 模式（不再开独立窗口）
+        // 之前注释掉是因为"NSMenu action → 新 About 窗口"会进入半 key 状态、影响剪贴板
+        // 改成复用现有 panel 切模式后，没有第二个窗口，那一类焦点问题彻底消失
+        let aboutItem = NSMenuItem(
+            title: "关于 Clip",
+            action: #selector(showAbout),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+        menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
             title: "退出 Clip",
@@ -294,52 +293,15 @@ final class StatusBarController {
         button.isHighlighted = false
     }
 
-    // 关于 Clip：直接用系统标准 About 面板
+    // 关于 Clip：切到 popup 的 .about 模式（嵌入式，不开独立窗口）
     //
-    // 为什么不自画一个：
-    //   - 系统 About 面板长得就是 macOS 用户熟悉的样子（App 图标 + 版本 + credits）
-    //   - 自动读 Info.plist 的 CFBundleShortVersionString / CFBundleVersion 字段
-    //   - 不像我们之前 settings 的自定义窗口，About 是只读 + transient，焦点问题不重要
-    //   - 一行 API 搞定
-    //
-    // credits 接 NSAttributedString，可以塞富文本和超链接（.link 属性）
+    // 复用现有 panel：设 mode = .about，再确保 panel 可见
+    // showPanel() 内部会 bump openCount，触发 ContentView 重置搜索/选中（mode 不动）
     @objc private func showAbout() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .credits: aboutCredits()
-        ])
-    }
-
-    private func aboutCredits() -> NSAttributedString {
-        let credits = NSMutableAttributedString()
-
-        let bodyAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.labelColor
-        ]
-        let secondaryAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ]
-        let linkAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11),
-            .link: URL(string: "https://github.com/Xu-Mj/clip")!
-        ]
-
-        credits.append(NSAttributedString(
-            string: "Spotlight 风的 macOS 剪贴板管理器\n\n",
-            attributes: bodyAttrs
-        ))
-        credits.append(NSAttributedString(
-            string: "GitHub: ",
-            attributes: secondaryAttrs
-        ))
-        credits.append(NSAttributedString(
-            string: "Xu-Mj/clip",
-            attributes: linkAttrs
-        ))
-
-        return credits
+        uiState.mode = .about
+        if !panel.isVisible {
+            showPanel()
+        }
     }
 
     // openSettings 已废弃：偏好设置入口移到了 popup 内部的齿轮按钮
