@@ -1,0 +1,66 @@
+name: Build
+
+# 触发：推到 main / 向 main 提 PR / 手动
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一分支新推送时取消上一次还在跑的构建，省额度
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # 必须 macos-26：项目用了 macOS 26 的 .glassEffect、deployment target 26.2
+    # macos-15 及以下只有 Xcode 16，没有 macOS 26 SDK，会编译失败
+    name: Build (macOS 26 · Xcode 26)
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 打印 Xcode / SDK 版本，CI 出问题时方便对照
+      - name: Xcode version
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep macos || true
+
+      # 提前解析 SPM 依赖（KeyboardShortcuts），失败能更早暴露
+      - name: Resolve Swift packages
+        run: xcodebuild -resolvePackageDependencies -project clip.xcodeproj -scheme clip
+
+      # Release 构建 + 全程关闭签名（CI 上没有开发者证书）
+      # generic/platform=macOS：不绑定具体设备，按 SDK 架构构建
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project clip.xcodeproj \
+            -scheme clip \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      # 打成 zip（ditto 保留 .app 包结构 + 资源 fork）
+      # 注意：这个产物未签名未公证，仅供作者自测；普通用户下载会被 Gatekeeper 拦
+      - name: Package app
+        run: |
+          cd build/Build/Products/Release
+          ditto -c -k --keepParent clip.app clip.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clip-app-unsigned
+          path: build/Build/Products/Release/clip.zip
+          if-no-files-found: error
+          retention-days: 14

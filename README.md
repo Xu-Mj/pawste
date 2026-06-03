@@ -1,5 +1,9 @@
 # Clip
 
+[![Build](https://github.com/Xu-Mj/clip/actions/workflows/build.yml/badge.svg)](https://github.com/Xu-Mj/clip/actions/workflows/build.yml)
+[![Platform](https://img.shields.io/badge/platform-macOS%2026%2B-blue)](https://www.apple.com/macos/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 > Spotlight 风的 macOS 剪贴板管理器。Swift + AppKit + SwiftUI 混合实现，专为 macOS 26 (Tahoe) 的 Liquid Glass 设计。
 
 <p align="center">
