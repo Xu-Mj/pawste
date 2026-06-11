@@ -231,13 +231,18 @@ struct ContentView: View {
     // 搜索框：放大镜图标 + TextField + 清除 × 按钮（仅在有内容时显示）
     private var searchField: some View {
         HStack(spacing: 6) {
+            // 用固定白色不透明度，不用 .secondary
+            // Liquid Glass 的 vibrancy 会拿浮窗背后内容做混合，把层级色冲淡到几乎看不见
+            // （真实显示时淡、截图反而清楚就是这个原因）；显式颜色不走 vibrancy，渲染稳定
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.65))
 
-            TextField("搜索", text: $searchQuery)
+            TextField("搜索", text: $searchQuery,
+                      prompt: Text("搜索").foregroundColor(.white.opacity(0.4)))
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
+                .foregroundStyle(.white)
                 .focused($searchFocused)
                 .onSubmit { triggerSelected() }
                 // 局部 Esc 处理：把"清查询 / 失焦"留在框内消费，不冒到外层关 popup
@@ -255,8 +260,8 @@ struct ContentView: View {
                     searchQuery = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.5))
                 }
                 .buttonStyle(.plain)
                 .help("清除搜索")
@@ -284,7 +289,7 @@ struct ContentView: View {
         } label: {
             Image(systemName: "gearshape")
                 .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.65))
         }
         .buttonStyle(.borderless)
         .help("偏好设置")
@@ -297,7 +302,7 @@ struct ContentView: View {
         } label: {
             Image(systemName: "trash")
                 .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.65))
         }
         .buttonStyle(.borderless)
         .disabled(watcher.items.isEmpty)
