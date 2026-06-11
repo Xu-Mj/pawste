@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // 关于页（嵌在 popup 浮窗里，不是独立窗口）
 //
@@ -65,27 +66,13 @@ struct AboutView: View {
 
     private var card: some View {
         VStack(spacing: 12) {
-            // App 图标
-            // 暂用状态栏同款 SF Symbol，做成圆角方块，比 Xcode 默认图标更像"设计过"
-            // 等真图标做好了换成 Image("AppIcon") 或 NSApp.applicationIconImage
-            Image(systemName: "list.clipboard.fill")
-                .font(.system(size: 40, weight: .medium))
-                .foregroundStyle(.white)
-                .frame(width: 84, height: 84)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                )
+            // App 图标：直接用真实应用图标（猫爪）
+            // NSApp.applicationIconImage 运行时读 asset catalog 的 AppIcon
+            // 图标自带圆角，直接展示即可
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 96, height: 96)
 
             VStack(spacing: 3) {
                 Text("Pawste")
