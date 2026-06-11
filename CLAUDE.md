@@ -22,30 +22,36 @@ Xcode 项目用的是 **`PBXFileSystemSynchronizedRootGroup`** —— `Pawste/` 
 
 ```
 Pawste/
+├── Log.swift     全局 log()：仅 DEBUG 输出，发布版静音（nonisolated）
 ├── App/         入口 + 生命周期
-│   ├── PawsteApp.swift           SwiftUI @main，桥接 AppDelegate
-│   ├── AppDelegate.swift       AppKit 生命周期，启动 watcher + 注册全局快捷键
-│   └── GlobalShortcuts.swift   KeyboardShortcuts 库的快捷键命名
+│   ├── PawsteApp.swift          SwiftUI @main，桥接 AppDelegate
+│   ├── AppDelegate.swift        AppKit 生命周期，启动 watcher + 注册全局快捷键
+│   └── GlobalShortcuts.swift    KeyboardShortcuts 库的快捷键命名
 ├── Models/      纯数据
-│   └── ClipboardItem.swift     条目模型 + Kind 枚举 (.text / .image) + ImageEntry
+│   └── ClipboardItem.swift      条目模型 + Kind 枚举 (.text / .image) + ImageEntry
 ├── Services/    业务逻辑（不碰 UI）
-│   ├── PasteboardWatcher.swift Pasteboard 轮询、去重、持久化、容量管理（核心 482 行）
-│   ├── ImageProcessor.swift    actor，图片解码/编码/写盘/缩略图（后台线程）
-│   └── Paster.swift            CGEvent 模拟 ⌘V + 辅助功能权限检查
+│   ├── PasteboardWatcher.swift  Pasteboard 轮询、去重、置顶、容量管理（领域核心）
+│   ├── HistoryStore.swift       持久化：JSON 编解码 + 防抖写盘 + 文件路径（@MainActor）
+│   ├── ImageProcessor.swift     actor，ImageIO/CoreGraphics 解码/编码/缩略图（后台线程）
+│   └── Paster.swift             CGEvent 模拟 ⌘V + 辅助功能权限检查
 ├── Window/      AppKit 浮窗基础设施
-│   ├── FloatingPanel.swift     NSPanel 子类，覆写 canBecomeKey
-│   ├── PanelUIState.swift      共享 list/settings 模式状态（@Observable）
+│   ├── FloatingPanel.swift      NSPanel 子类，覆写 canBecomeKey
+│   ├── PanelUIState.swift       共享 list/settings/about 模式 + openCount（@Observable）
 │   └── StatusBarController.swift  菜单栏图标 + popup + 鼠标定位 + 粘贴流程
 ├── Views/       SwiftUI 视图
-│   ├── ContentView.swift       popup 根视图 + 键盘事件路由
-│   ├── ItemRow.swift           列表单行（文本/图片双类型渲染）
-│   ├── ProcessingRow.swift     图片处理中占位条
-│   ├── PinnedChip.swift        置顶区水平滚动的 chip
-│   └── SettingsView.swift      偏好设置（嵌在 popup 里，不是独立窗口）
+│   ├── ContentView.swift        popup 根视图（glassContainer + keyboardRouting）
+│   ├── ItemRow.swift            列表单行（文本/图片双类型渲染）
+│   ├── ProcessingRow.swift      图片处理中占位条
+│   ├── PinnedChip.swift         置顶区水平滚动的 chip
+│   ├── SettingsView.swift       偏好设置（嵌在 popup 里，不是独立窗口）
+│   └── AboutView.swift          关于页（嵌在 popup，.about 模式）
 ├── Extensions/
-│   └── Date+RelativeShort.swift  "刚刚 / N 分钟前" 时间格式化
-├── Assets.xcassets/
-└── Info.plist                  LSUIElement = YES（菜单栏 App，无 Dock 图标）
+│   ├── Date+RelativeShort.swift   "刚刚 / N 分钟前" 时间格式化
+│   ├── String+DisplayPreview.swift 单行预览：换行 → ↵ 可见符号
+│   ├── View+PointerCursor.swift   hover 变手指光标
+│   └── Color+Glass.swift          glassPrimary/Secondary/Tertiary 语义色（见决定 7）
+├── Assets.xcassets/             含猫爪 AppIcon（scripts/make_icon.swift 生成）
+└── Info.plist                   LSUIElement = YES（菜单栏 App，无 Dock 图标）
 ```
 
 ## 架构关键决定（重要踩坑）
@@ -69,6 +75,12 @@ Recorder 控件渲染时会**自动暂停全局 hotkey**（库的内部行为）
 
 ### 6. `_NSDetectedLayoutRecursion` 启动 warning 可以忽略
 SwiftUI + NSHostingController + 任何"真模糊"渲染（`.glassEffect`、NSVisualEffectView）都会触发，Apple 没修，只打一次，不影响功能。**不要追这个**。
+
+### 7. 浮窗里不要用 `.secondary`/`.tertiary`，用 `Color+Glass` 语义色
+Liquid Glass 的 vibrancy 会拿浮窗背后的实时内容混合 SwiftUI 层级色（`.secondary`/`.tertiary`/`.primary`），**真实显示时常被冲淡到几乎看不见，但截图正常**（macOS 26/27 更明显）。所有浮窗内文字/图标用 `.glassPrimary/.glassSecondary/.glassTertiary`（固定白色不透明度，不走 vibrancy）。新加 UI 切记别用裸层级色。
+
+### 8. 图片处理只用 ImageIO/CoreGraphics，不要 NSImage
+`NSImage`/`NSBitmapImageRep`/`lockFocus` 在 Swift 6 是 main-actor 隔离，在 `ImageProcessor` actor（后台）里调会编译告警 + 离开主线程本就不安全。用 `CGImageSource`/`CGImageDestination`/`CGImageSourceCreateThumbnailAtIndex`（线程安全、非隔离）。
 
 ## 持久化文件位置
 
