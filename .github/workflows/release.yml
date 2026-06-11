@@ -1,0 +1,79 @@
+name: Release
+
+# 推送 v* tag（如 v1.0.0）时：构建 Release、打包、创建 GitHub Release 并附带 zip
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 tag（如 v1.0.0）"
+        required: true
+
+permissions:
+  contents: write   # 创建 Release 需要写权限
+
+jobs:
+  release:
+    name: Build & Release (macOS 26 · Xcode 26)
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      # Release 构建 + 全程关闭签名（无开发者证书）
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Pawste.xcodeproj \
+            -scheme Pawste \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      # ditto 保留 .app 包结构；产物名带版本号
+      - name: Package app
+        run: |
+          cd build/Build/Products/Release
+          ditto -c -k --keepParent Pawste.app Pawste-${{ github.ref_name }}.zip
+          shasum -a 256 Pawste-${{ github.ref_name }}.zip > Pawste-${{ github.ref_name }}.zip.sha256
+          ls -la
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/Build/Products/Release/Pawste-${{ github.ref_name }}.zip
+            build/Build/Products/Release/Pawste-${{ github.ref_name }}.zip.sha256
+          draft: false
+          generate_release_notes: true
+          body: |
+            ## Pawste ${{ github.ref_name }}
+
+            Spotlight 风的 macOS 剪贴板管理器 🐾
+
+            ### 系统要求
+            - **macOS 26 (Tahoe) 或更高** —— 用了 Liquid Glass 等新 API，低版本无法运行
+
+            ### 安装
+            1. 下载下方 `Pawste-${{ github.ref_name }}.zip` 并解压
+            2. 把 `Pawste.app` 拖进 `/Applications`
+            3. **首次打开**：这是未签名 / 未公证版本，Gatekeeper 会拦。两种方式之一打开：
+               - 右键 `Pawste.app` → 打开 → 在弹窗里再点「打开」
+               - 或终端执行：`xattr -cr /Applications/Pawste.app`
+            4. 首次按 `Enter` 粘贴时，到 系统设置 → 隐私与安全性 → 辅助功能 里勾选 Pawste
+
+            > ⚠️ 此构建未经 Apple 签名公证，仅供尝鲜。介意安全提示可自行从源码构建。
+
+            ### 校验
+            `Pawste-${{ github.ref_name }}.zip.sha256` 为 SHA-256 校验值。
