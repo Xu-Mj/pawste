@@ -46,20 +46,8 @@ final class PasteboardWatcher {
     private static let maxPinnedKey = "maxPinned"
     private static let defaultMaxPinned = 5
 
-    private static let appDir: URL = {
-        let appSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first!
-        let dir = appSupport.appendingPathComponent("Pawste", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }()
-
-    private static let storeURL: URL = appDir.appendingPathComponent("history.json")
-
-    private static let imagesDir: URL = appDir.appendingPathComponent("images", isDirectory: true)
-
-    private var pendingSaveTask: Task<Void, Never>?
+    // 持久化委托给 HistoryStore（编解码 + 防抖写盘 + 文件路径）
+    private let store = HistoryStore()
 
     // MARK: - 生命周期
 
@@ -74,9 +62,12 @@ final class PasteboardWatcher {
         self.maxPinned = storedPinned > 0 ? storedPinned : Self.defaultMaxPinned
 
         self.lastChangeCount = NSPasteboard.general.changeCount
-        self.imageProcessor = ImageProcessor(imagesDir: Self.imagesDir)
+        self.imageProcessor = ImageProcessor(imagesDir: HistoryStore.imagesDir)
 
-        loadFromDisk()
+        // 从磁盘加载 + 应用容量上限（旧数据可能超出新设上限，顺带删超额图片文件）
+        items = store.load()
+        evictIfNeeded()
+        log("📂 加载历史 \(items.count) 条（其中图片 \(imageCount) 张）")
     }
 
     deinit {
@@ -227,9 +218,9 @@ final class PasteboardWatcher {
         scheduleSave()
     }
 
+    // 退出时同步落盘，确保防抖窗口里最后的变更不丢
     func flushSave() {
-        pendingSaveTask?.cancel()
-        saveNow()
+        store.flush(items)
     }
 
     // 给 UI / paste-back 用：根据 filename 拿到完整 PNG 数据
@@ -237,49 +228,9 @@ final class PasteboardWatcher {
         await imageProcessor.loadFullImageData(filename: filename)
     }
 
-    // MARK: - 持久化逻辑
-
-    private func loadFromDisk() {
-        do {
-            let data = try Data(contentsOf: Self.storeURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let decoded = try decoder.decode([ClipboardItem].self, from: data)
-            items = decoded
-            // 应用容量上限（总数 + 图片数），可能旧数据超出新设的上限
-            // 这里会顺带删掉超额图片的磁盘文件
-            evictIfNeeded()
-            log("📂 加载历史 \(items.count) 条（其中图片 \(imageCount) 张）")
-        } catch let error as NSError where error.code == NSFileReadNoSuchFileError {
-            log("📂 首次启动，无历史文件")
-        } catch {
-            // 解码失败大概率是 schema 不兼容（旧版纯文本格式）
-            // 直接清掉重来——用户已同意此策略
-            log("⚠️ 历史文件解码失败，清空重来: \(error.localizedDescription)")
-            try? FileManager.default.removeItem(at: Self.storeURL)
-            items = []
-        }
-    }
-
-    private func saveNow() {
-        do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(items)
-            try data.write(to: Self.storeURL, options: .atomic)
-        } catch {
-            log("⚠️ 保存历史失败: \(error.localizedDescription)")
-        }
-    }
-
+    // 防抖保存当前 items 快照
     private func scheduleSave() {
-        pendingSaveTask?.cancel()
-        pendingSaveTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            self?.saveNow()
-        }
+        store.scheduleSave(items)
     }
 
     // MARK: - 检测主循环
@@ -460,7 +411,7 @@ final class PasteboardWatcher {
         }
     }
 
-    // 当前图片条目数（不分置顶/非置顶，用于 loadFromDisk 日志）
+    // 当前图片条目数（不分置顶/非置顶，用于加载日志）
     private var imageCount: Int {
         items.lazy.filter { $0.kind.asImage != nil }.count
     }
