@@ -100,15 +100,12 @@ final class StatusBarController {
 
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
-        // 候选 SF Symbol：
-        //   doc.on.clipboard / doc.on.clipboard.fill —— 文档放剪贴板上
-        //   list.clipboard / list.clipboard.fill     —— 清单 + 剪贴板（管理器语义）
-        //   rectangle.on.rectangle.fill              —— 两方块叠加（复制感）
-        //   pawprint.fill                            —— 猫爪（呼应 Pawste 名字）
-        // 改 systemSymbolName 字符串即可切换
+        // 菜单栏图标用猫爪，和 App 图标 / Pawste 名字统一
+        // 菜单栏图标是 template（单色，自动适配明暗），pawprint.fill 实心爪小尺寸也清晰
+        // 其他候选：list.clipboard.fill（剪贴板语义）/ doc.on.clipboard / rectangle.on.rectangle.fill
         button.image = NSImage(
-            systemSymbolName: "list.clipboard.fill",
-            accessibilityDescription: "剪贴板历史"
+            systemSymbolName: "pawprint.fill",
+            accessibilityDescription: "Pawste 剪贴板历史"
         )
         button.action = #selector(handleStatusItemClick)
         button.target = self
