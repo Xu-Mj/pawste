@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusBarController?.togglePanel()
         }
 
-        print("🚀 Pawste 启动完成，全局快捷键 ⌥+V 已注册")
+        log("🚀 Pawste 启动完成，全局快捷键 ⌥+V 已注册")
     }
 
     // App 即将退出时调用
@@ -46,6 +46,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 关键：同步落盘，确保最后的变更被保存
         // 防抖保存可能还在 1 秒等待中，不 flush 就会丢
         watcher.flushSave()
-        print("👋 Pawste 退出，历史已保存")
+        log("👋 Pawste 退出，历史已保存")
     }
 }

@@ -40,7 +40,7 @@ enum Paster {
     // 调用前确保 NSPasteboard 已经有想要粘贴的内容
     static func simulatePaste() {
         guard hasAccessibilityPermission else {
-            print("⚠️ 缺少辅助功能权限，无法自动粘贴")
+            log("⚠️ 缺少辅助功能权限，无法自动粘贴")
             // 第一次调用时弹系统对话框，引导用户授权
             requestAccessibilityPermission()
             return
@@ -64,6 +64,6 @@ enum Paster {
         down?.post(tap: .cgAnnotatedSessionEventTap)
         up?.post(tap: .cgAnnotatedSessionEventTap)
 
-        print("📤 已模拟 ⌘V")
+        log("📤 已模拟 ⌘V")
     }
 }

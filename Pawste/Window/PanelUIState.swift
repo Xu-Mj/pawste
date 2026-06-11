@@ -2,9 +2,10 @@ import Observation
 
 // 浮窗的 UI 模式状态
 //
-// 同一个 panel（FloatingPanel）承载两种模式：
+// 同一个 panel（FloatingPanel）承载三种模式：
 //   - .list: 剪贴板历史列表（默认）
 //   - .settings: 偏好设置表单
+//   - .about: 关于页
 //
 // 用 @Observable 让 SwiftUI 自动响应模式变化
 // StatusBarController（AppKit 侧）和 ContentView（SwiftUI 侧）共享同一个实例
@@ -25,9 +26,4 @@ final class PanelUIState {
     // panel orderOut/makeKeyAndOrderFront 不一定触发 SwiftUI 的 onAppear，
     // 单调递增的 openCount + .onChange 是更可靠的"开窗"信号
     var openCount: Int = 0
-
-    // 切回列表（关闭后默认）
-    func resetToList() {
-        mode = .list
-    }
 }

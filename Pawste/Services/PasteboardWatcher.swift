@@ -81,7 +81,7 @@ final class PasteboardWatcher {
 
     deinit {
         timer?.invalidate()
-        print("🗑️ PasteboardWatcher 已释放")
+        log("🗑️ PasteboardWatcher 已释放")
     }
 
     // MARK: - 公开 API
@@ -91,7 +91,7 @@ final class PasteboardWatcher {
         timer = Timer.scheduledTimer(withTimeInterval: pollingInterval, repeats: true) { [weak self] _ in
             self?.check()
         }
-        print("📋 PasteboardWatcher 启动，轮询 \(Int(pollingInterval * 1000))ms，容量 \(maxItems)")
+        log("📋 PasteboardWatcher 启动，轮询 \(Int(pollingInterval * 1000))ms，容量 \(maxItems)")
     }
 
     func stop() {
@@ -113,7 +113,7 @@ final class PasteboardWatcher {
 
         // 检查上限：如果当前非置顶 + 已经达到 maxPinned → 静默拒绝
         if !items[index].isPinned && pinnedCount >= maxPinned {
-            print("⚠️ 置顶已满（\(maxPinned) 条），无法再置顶")
+            log("⚠️ 置顶已满（\(maxPinned) 条），无法再置顶")
             return false
         }
 
@@ -123,11 +123,11 @@ final class PasteboardWatcher {
         if item.isPinned {
             // 置顶：移到最顶
             items.insert(item, at: 0)
-            print("📌 已置顶 (共 \(pinnedCount) 条)")
+            log("📌 已置顶 (共 \(pinnedCount) 条)")
         } else {
             // 取消置顶：移到非置顶组的开头
             items.insert(item, at: pinnedCount)
-            print("📌 已取消置顶")
+            log("📌 已取消置顶")
         }
 
         scheduleSave()
@@ -168,7 +168,7 @@ final class PasteboardWatcher {
             lastImagePrefix = nil
         }
 
-        print("🗑️ 删除条目（剩 \(items.count) 条）")
+        log("🗑️ 删除条目（剩 \(items.count) 条）")
         scheduleSave()
         return true
     }
@@ -185,7 +185,7 @@ final class PasteboardWatcher {
                 await imageProcessor.deleteFile(filename: filename)
             }
         }
-        print("🗑️ 历史已清空")
+        log("🗑️ 历史已清空")
         scheduleSave()
     }
 
@@ -195,7 +195,7 @@ final class PasteboardWatcher {
         UserDefaults.standard.set(n, forKey: Self.maxItemsKey)
         evictIfNeeded()  // 复用统一的裁剪逻辑，图片文件连带删
         scheduleSave()
-        print("📐 文本上限改为 \(n)")
+        log("📐 文本上限改为 \(n)")
     }
 
     func setMaxImages(_ n: Int) {
@@ -204,14 +204,14 @@ final class PasteboardWatcher {
         UserDefaults.standard.set(n, forKey: Self.maxImagesKey)
         evictIfNeeded()
         scheduleSave()
-        print("🖼️ 图片上限改为 \(n)")
+        log("🖼️ 图片上限改为 \(n)")
     }
 
     func setMaxPinned(_ n: Int) {
         guard n > 0, n != maxPinned else { return }
         self.maxPinned = n
         UserDefaults.standard.set(n, forKey: Self.maxPinnedKey)
-        print("📌 置顶上限改为 \(n)")
+        log("📌 置顶上限改为 \(n)")
         // 如果当前已置顶数 > 新上限，超出部分取消置顶（最末的先）
         // 这样用户调小上限不会出现"超出但还显示着"的尴尬状态
         while pinnedCount > maxPinned {
@@ -249,13 +249,13 @@ final class PasteboardWatcher {
             // 应用容量上限（总数 + 图片数），可能旧数据超出新设的上限
             // 这里会顺带删掉超额图片的磁盘文件
             evictIfNeeded()
-            print("📂 加载历史 \(items.count) 条（其中图片 \(imageCount) 张）")
+            log("📂 加载历史 \(items.count) 条（其中图片 \(imageCount) 张）")
         } catch let error as NSError where error.code == NSFileReadNoSuchFileError {
-            print("📂 首次启动，无历史文件")
+            log("📂 首次启动，无历史文件")
         } catch {
             // 解码失败大概率是 schema 不兼容（旧版纯文本格式）
             // 直接清掉重来——用户已同意此策略
-            print("⚠️ 历史文件解码失败，清空重来: \(error.localizedDescription)")
+            log("⚠️ 历史文件解码失败，清空重来: \(error.localizedDescription)")
             try? FileManager.default.removeItem(at: Self.storeURL)
             items = []
         }
@@ -269,7 +269,7 @@ final class PasteboardWatcher {
             let data = try encoder.encode(items)
             try data.write(to: Self.storeURL, options: .atomic)
         } catch {
-            print("⚠️ 保存历史失败: \(error.localizedDescription)")
+            log("⚠️ 保存历史失败: \(error.localizedDescription)")
         }
     }
 
@@ -311,7 +311,7 @@ final class PasteboardWatcher {
             return
         }
 
-        print("📋 [\(current)] 剪贴板变化，但没有可识别的内容")
+        log("📋 [\(current)] 剪贴板变化，但没有可识别的内容")
     }
 
     // MARK: - 读取剪贴板
@@ -360,12 +360,12 @@ final class PasteboardWatcher {
             let existing = items.remove(at: existingIndex)
             let insertIndex = existing.isPinned ? 0 : pinnedCount
             items.insert(existing, at: insertIndex)
-            print("🔄 重排文本到顶部")
+            log("🔄 重排文本到顶部")
         } else {
             // 新内容总是非置顶，插入"非置顶组"的开头
             items.insert(ClipboardItem(kind: .text(text)), at: pinnedCount)
             evictIfNeeded()
-            print("➕ 新文本 (共 \(items.count) 条)")
+            log("➕ 新文本 (共 \(items.count) 条)")
         }
         // 文本路径清掉图片指纹，避免误判
         lastImageSize = nil
@@ -384,7 +384,7 @@ final class PasteboardWatcher {
             // 保留置顶状态：置顶 → 顶部；非置顶 → 非置顶组开头
             let insertIndex = existing.isPinned ? 0 : pinnedCount
             items.insert(existing, at: insertIndex)
-            print("🔄 重排图片（按 sourcePath）到顶部: \(path)")
+            log("🔄 重排图片（按 sourcePath）到顶部: \(path)")
             scheduleSave()
             return
         }
@@ -393,7 +393,7 @@ final class PasteboardWatcher {
         // 只跟"上一次"比，O(1) 检测最常见的"误按两次 ⌘C"
         if data.count == lastImageSize,
            data.prefix(256) == lastImagePrefix {
-            print("🔄 邻接重复图片，已忽略")
+            log("🔄 邻接重复图片，已忽略")
             return
         }
 

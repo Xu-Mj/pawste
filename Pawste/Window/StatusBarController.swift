@@ -192,7 +192,7 @@ final class StatusBarController {
 
     private func handleItemSelection(_ item: ClipboardItem) {
         let targetApp = previousApp
-        print("🎯 选中条目，目标 App: \(targetApp?.localizedName ?? "<nil>")")
+        log("🎯 选中条目，目标 App: \(targetApp?.localizedName ?? "<nil>")")
 
         // 写剪贴板 + 隐藏 panel + 模拟粘贴 整套包成一个 Task
         // 因为图片场景需要 async 读盘
@@ -237,7 +237,7 @@ final class StatusBarController {
         pb.clearContents()
 
         guard let data = await watcher.loadImageData(filename: entry.filename) else {
-            print("⚠️ 图片文件丢失: \(entry.filename)")
+            log("⚠️ 图片文件丢失: \(entry.filename)")
             return  // 文件丢失就什么都不写，simulatePaste 等于 no-op
         }
 
@@ -299,13 +299,6 @@ final class StatusBarController {
         if !panel.isVisible {
             showPanel()
         }
-    }
-
-    // openSettings 已废弃：偏好设置入口移到了 popup 内部的齿轮按钮
-    // 保留这个方法只是因为 #selector 不容易完全清除，留个 noop 也无害
-    // 实际触发现在是 SwiftUI 内 uiState.mode = .settings 直接切换
-    @objc private func openSettings() {
-        // 已不再使用
     }
 
     @objc private func quitApp() {

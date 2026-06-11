@@ -197,13 +197,13 @@ struct SettingsView: View {
         do {
             if enable {
                 try SMAppService.mainApp.register()
-                print("🔔 已开启开机自启动")
+                log("🔔 已开启开机自启动")
             } else {
                 try SMAppService.mainApp.unregister()
-                print("🔕 已关闭开机自启动")
+                log("🔕 已关闭开机自启动")
             }
         } catch {
-            print("⚠️ 自启动操作失败: \(error.localizedDescription)")
+            log("⚠️ 自启动操作失败: \(error.localizedDescription)")
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
     }
