@@ -126,7 +126,7 @@ struct ItemRow: View {
                     .scaledToFit()
             } else {
                 Image(systemName: "photo")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.glassSecondary)
             }
         }
         .frame(width: 40, height: 40)
@@ -149,15 +149,15 @@ struct ItemRow: View {
     // MARK: - 颜色
 
     private var numberColor: Color {
-        isSelected ? Color.white.opacity(0.9) : Color.primary.opacity(0.35)
+        isSelected ? Color.white.opacity(0.9) : Color.glassPrimary.opacity(0.35)
     }
 
     private var timeColor: Color {
-        isSelected ? Color.white.opacity(0.75) : Color.secondary.opacity(0.85)
+        isSelected ? Color.white.opacity(0.75) : Color.glassSecondary.opacity(0.85)
     }
 
     private var pinColor: Color {
-        isSelected ? Color.white.opacity(0.85) : Color.secondary
+        isSelected ? Color.white.opacity(0.85) : Color.glassSecondary
     }
 
     private var backgroundFill: Color {

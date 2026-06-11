@@ -42,10 +42,10 @@ struct AboutView: View {
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.glassPrimary)
                     .frame(width: 24, height: 24)
                     .background(
-                        Circle().fill(Color.primary.opacity(0.08))
+                        Circle().fill(Color.glassPrimary.opacity(0.08))
                     )
             }
             .buttonStyle(.plain)
@@ -80,12 +80,12 @@ struct AboutView: View {
 
                 Text("版本 \(version) (\(build))")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.glassSecondary)
             }
 
             Text("Spotlight 风的 macOS 剪贴板管理器")
                 .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.glassSecondary)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 24)
@@ -108,7 +108,7 @@ struct AboutView: View {
 
             Text("MIT License")
                 .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.glassTertiary)
         }
         .padding(.bottom, 16)
     }

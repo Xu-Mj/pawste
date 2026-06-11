@@ -56,10 +56,10 @@ struct SettingsView: View {
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.glassPrimary)
                     .frame(width: 24, height: 24)
                     .background(
-                        Circle().fill(Color.primary.opacity(0.08))
+                        Circle().fill(Color.glassPrimary.opacity(0.08))
                     )
             }
             .buttonStyle(.plain)
@@ -115,7 +115,7 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 Text(currentShortcutDisplay)
                     .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.glassSecondary)
 
                 Button("修改") {
                     isRecordingShortcut = true
@@ -134,7 +134,7 @@ struct SettingsView: View {
             HStack {
                 Text("点上面字段，按下你想要的快捷键组合")
                     .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.glassTertiary)
 
                 Spacer()
 
@@ -160,7 +160,7 @@ struct SettingsView: View {
                 LabeledContent("文本条数上限") {
                     Text("\(maxItems)")
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.glassSecondary)
                 }
             }
             .onChange(of: maxItems) { _, newValue in
@@ -171,7 +171,7 @@ struct SettingsView: View {
                 LabeledContent("图片张数上限") {
                     Text("\(maxImages)")
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.glassSecondary)
                 }
             }
             .onChange(of: maxImages) { _, newValue in
@@ -182,7 +182,7 @@ struct SettingsView: View {
                 LabeledContent("置顶条数上限") {
                     Text("\(maxPinned)")
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.glassSecondary)
                 }
             }
             .onChange(of: maxPinned) { _, newValue in

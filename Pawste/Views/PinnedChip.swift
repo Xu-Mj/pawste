@@ -108,7 +108,7 @@ struct PinnedChip: View {
             .font(.system(size: 11))
             .lineLimit(1)
             .truncationMode(.tail)
-            .foregroundStyle(.primary)
+            .foregroundStyle(.glassPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 8)
             // 有 badge 时给右侧留 22pt 让出位置（badge ~14pt + padding 3pt + 安全间距）
@@ -131,7 +131,7 @@ struct PinnedChip: View {
                 .overlay(
                     Image(systemName: "photo")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.glassSecondary)
                 )
         }
     }

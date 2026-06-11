@@ -20,16 +20,16 @@ struct ProcessingRow: View {
                 .overlay {
                     Image(systemName: "photo")
                         .font(.system(size: 16))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.glassTertiary)
                 }
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("处理图片中…")
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.glassSecondary)
                 Text("稍候片刻")
                     .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.glassTertiary)
             }
             Spacer()
         }

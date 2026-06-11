@@ -329,13 +329,13 @@ struct ContentView: View {
         VStack(spacing: 10) {
             Image(systemName: "doc.on.clipboard")
                 .font(.system(size: 32, weight: .light))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.glassTertiary)
             Text("还没有剪贴板历史")
                 .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.glassSecondary)
             Text("复制点东西试试")
                 .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.glassTertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, 40)
@@ -345,13 +345,13 @@ struct ContentView: View {
         VStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 28, weight: .light))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.glassTertiary)
             Text("没有匹配「\(searchQuery)」")
                 .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.glassSecondary)
             Text("Esc 清除搜索")
                 .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.glassTertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, 40)
@@ -437,11 +437,11 @@ struct ContentView: View {
             }
             .keyboardShortcut("q")
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.glassSecondary)
             .pointerCursor()
         }
         .font(.system(size: 10))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(.glassTertiary)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
     }
