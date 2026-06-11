@@ -48,8 +48,12 @@ struct ContentView: View {
     }
 
     var body: some View {
-        // 根据模式分发不同的内容视图，外层玻璃容器统一管理
-        // 这样切换模式时玻璃不闪烁，焦点、键盘事件等也都在同一个 view tree 里
+        keyboardRouting(glassContainer)
+    }
+
+    // 玻璃容器：按模式分发内容 + 统一玻璃/配色/可聚焦
+    // 外层玻璃统一管理，切换模式时玻璃不闪烁，焦点、键盘事件都在同一 view tree
+    private var glassContainer: some View {
         Group {
             switch uiState.mode {
             case .list:
@@ -71,10 +75,17 @@ struct ContentView: View {
             in: RoundedRectangle(cornerRadius: 14)
         )
         .preferredColorScheme(.dark)
-        // 键盘事件 + onAppear 只在 .list 模式生效
-        // .settings 模式有自己的 Esc 处理（在 SettingsView 里）
+        // .focusable 必须在 .onKeyPress 之前，否则收不到键盘事件
         .focusable()
         .focusEffectDisabled()
+    }
+
+    // MARK: - 键盘路由
+
+    // 全部键盘事件 + 瞬时状态重置，从 body 抽出避免过长
+    // 各 .onKeyPress 都 guard uiState.mode == .list（.settings/.about 自己处理 Esc）
+    private func keyboardRouting(_ content: some View) -> some View {
+        content
         .onKeyPress(.upArrow) {
             guard uiState.mode == .list else { return .ignored }
             moveSelection(by: -1)
