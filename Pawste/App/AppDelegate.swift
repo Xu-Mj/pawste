@@ -37,6 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusBarController?.togglePanel()
         }
 
+        // 4. 辅助功能权限：缺失时启动即主动发起系统授权请求，不等用户撞上"粘贴没反应"
+        // 系统弹窗只在"未询问过"状态出现（问过/拒绝过则静默无副作用），每次启动调用是安全的；
+        // 弹窗之外还有 popup 里的常驻 PermissionBanner 兜底引导（任何状态可见、可点去开启）
+        if !Paster.hasAccessibilityPermission {
+            Paster.requestAccessibilityPermission()
+            log("🔐 缺少辅助功能权限，已发起系统授权请求")
+        }
+
         log("🚀 Pawste 启动完成，全局快捷键 ⌥+V 已注册")
     }
 

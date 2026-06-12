@@ -22,6 +22,11 @@ struct ContentView: View {
     //       2) Esc 行为分支（已聚焦清查询 / 失焦 → 关 popup）
     @FocusState private var searchFocused: Bool
 
+    // 辅助功能权限状态：缺失时列表顶部显示 PermissionBanner
+    // 每次开窗（resetEphemeralState）重新检测——授权后横幅自动消失
+    // 默认 true 避免启动瞬间误闪横幅
+    @State private var hasAXPermission = true
+
     // MARK: - 过滤
 
     // 子串匹配（不区分大小写），同时支持文本和图片 displayName
@@ -186,6 +191,7 @@ struct ContentView: View {
         }
         .onAppear {
             selectedID = watcher.unpinnedItems.first?.id
+            hasAXPermission = Paster.hasAccessibilityPermission
         }
     }
 
@@ -199,6 +205,9 @@ struct ContentView: View {
         let pinnedShortcutCount = min(watcher.pinnedItems.count, 9)
         return VStack(spacing: 0) {
             header
+            if !hasAXPermission {
+                PermissionBanner()
+            }
             pinnedSection(pinned)
             content(pinned: pinned, unpinned: unpinned)
             footer(unpinnedCount: unpinned.count, pinnedShortcutCount: pinnedShortcutCount)
@@ -515,11 +524,13 @@ struct ContentView: View {
         }
     }
 
-    // 每次重新打开 popup 时调用：清搜索 + 复位选中
+    // 每次重新打开 popup 时调用：清搜索 + 复位选中 + 重检权限
     // 保持"开窗即新鲜状态"，不让上一次的搜索/选中影响这次
     private func resetEphemeralState() {
         searchQuery = ""
         searchFocused = false
         selectedID = watcher.unpinnedItems.first?.id
+        // 用户可能刚去系统设置开了权限，每次开窗都重新查一次（AXIsProcessTrusted 开销极小）
+        hasAXPermission = Paster.hasAccessibilityPermission
     }
 }
