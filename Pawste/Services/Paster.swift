@@ -26,11 +26,10 @@ enum Paster {
     // 这是 macOS 强制的安全设计，App 不能绕过
     @discardableResult
     static func requestAccessibilityPermission() -> Bool {
-        // kAXTrustedCheckOptionPrompt = true：检查失败时自动弹系统提示对话框
-        // takeUnretainedValue：Core Foundation 引用计数管理，告诉编译器"我不持有这个，别 release"
-        let options = [
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
-        ]
+        // key = true：检查失败时自动弹系统提示对话框
+        // 不直接引用 kAXTrustedCheckOptionPrompt：它在 C 头里声明成全局 var，
+        // Swift 6 并发检查会报"shared mutable state"；其值是稳定的字面量，直接写出来
+        let options = ["AXTrustedCheckOptionPrompt": true]
         return AXIsProcessTrustedWithOptions(options as CFDictionary)
     }
 

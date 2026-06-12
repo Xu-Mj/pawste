@@ -57,32 +57,18 @@ struct ItemRow: View {
     //   - 非置顶项：只在 hover 时显示空心 pin（暗示"可以点这里置顶"）
     @ViewBuilder
     private var pinButton: some View {
-        if item.isPinned {
-            // 置顶项：常驻填充图标，点击取消置顶
+        if item.isPinned || isHovered {
             Button {
                 onPinToggle()
             } label: {
-                Image(systemName: "pin.fill")
+                Image(systemName: item.isPinned ? "pin.fill" : "pin")
                     .font(.system(size: 11))
                     .foregroundStyle(pinColor)
                     // 固定宽度，防止显示/隐藏时其他内容跳动
                     .frame(width: 14, alignment: .center)
             }
             .buttonStyle(.plain)
-            .help("取消置顶 (⌘P)")
-            .pointerCursor()
-        } else if isHovered {
-            // 非置顶 + hover：显示空心图标，点击置顶
-            Button {
-                onPinToggle()
-            } label: {
-                Image(systemName: "pin")
-                    .font(.system(size: 11))
-                    .foregroundStyle(pinColor)
-                    .frame(width: 14, alignment: .center)
-            }
-            .buttonStyle(.plain)
-            .help("置顶 (⌘P)")
+            .help(item.isPinned ? "取消置顶 (⌘P)" : "置顶 (⌘P)")
             .pointerCursor()
         } else {
             // 非置顶 + 没 hover：占位空 view，保持其他内容布局稳定
@@ -104,11 +90,12 @@ struct ItemRow: View {
             // 显示压成单行预览：去前后空白 + 内部换行 → ↵ 可见符号
             // 避免单字 + 多换行内容看起来像只复制了一个字
             // 原始 text 不动，粘贴时仍是完整内容（含换行）
+            // .glassPrimary 而非 .primary：层级色走 vibrancy 会被浮窗背后内容冲淡（决定 7）
             Text(text.displayPreview)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .font(.system(size: 12))
-                .foregroundStyle(isSelected ? .white : .primary)
+                .foregroundStyle(isSelected ? .white : .glassPrimary)
 
             Text(item.copiedAt.relativeShort)
                 .font(.system(size: 10))
@@ -138,7 +125,7 @@ struct ItemRow: View {
         VStack(alignment: .leading, spacing: 1) {
             Text("\(entry.width) × \(entry.height)")
                 .font(.system(size: 12))
-                .foregroundStyle(isSelected ? .white : .primary)
+                .foregroundStyle(isSelected ? .white : .glassPrimary)
 
             Text(item.copiedAt.relativeShort)
                 .font(.system(size: 10))

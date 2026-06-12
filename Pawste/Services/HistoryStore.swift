@@ -52,31 +52,51 @@ final class HistoryStore {
 
     // MARK: - 写
 
-    // 防抖保存：取消上一次，1 秒后写入这次的快照
+    // 防抖保存：取消上一次，1 秒后保存这次的快照
+    //
+    // 编码丢到后台（encode 是 O(全库) 的 CPU 活，条目多/有长文本时不能占主线程），
+    // 写盘回到主线程串行执行——这样和 flush 的先后顺序天然有保证：
+    // flush cancel 之后，就算编码已经在后台跑完，回到主线程的第二次取消检查也会拦住旧快照
     func scheduleSave(_ items: [ClipboardItem]) {
         pendingSaveTask?.cancel()
         pendingSaveTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            self?.saveNow(items)
+            guard let data = await Task.detached(priority: .utility, operation: {
+                Self.encode(items)
+            }).value else { return }
+            // 编码期间可能被 flush 抢先（cancel + 同步写最新快照），别再用旧快照覆盖
+            guard !Task.isCancelled else { return }
+            self?.write(data)
         }
     }
 
-    // 立即写盘（退出时同步落盘，确保最后的变更不丢）
+    // 立即写盘（退出时同步落盘，确保最后的变更不丢；终止路径一次性，编码留在主线程没问题）
     func flush(_ items: [ClipboardItem]) {
         pendingSaveTask?.cancel()
-        saveNow(items)
+        if let data = Self.encode(items) {
+            write(data)
+        }
     }
 
-    private func saveNow(_ items: [ClipboardItem]) {
+    private func write(_ data: Data) {
+        do {
+            try data.write(to: Self.storeURL, options: .atomic)
+        } catch {
+            log("⚠️ 保存历史失败: \(error.localizedDescription)")
+        }
+    }
+
+    // 纯函数，nonisolated：可在任意线程编码（ClipboardItem 是 nonisolated 值类型）
+    private nonisolated static func encode(_ items: [ClipboardItem]) -> Data? {
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(items)
-            try data.write(to: Self.storeURL, options: .atomic)
+            return try encoder.encode(items)
         } catch {
-            log("⚠️ 保存历史失败: \(error.localizedDescription)")
+            log("⚠️ 历史编码失败: \(error.localizedDescription)")
+            return nil
         }
     }
 }

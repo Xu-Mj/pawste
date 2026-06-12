@@ -25,41 +25,12 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            PanelHeader(title: "关于", onBack: onBack)
             Spacer(minLength: 0)
             card
             Spacer(minLength: 0)
             footer
         }
-    }
-
-    // MARK: - 顶栏（返回按钮，复用 SettingsView 的样式）
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Button {
-                onBack()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.glassPrimary)
-                    .frame(width: 24, height: 24)
-                    .background(
-                        Circle().fill(Color.glassPrimary.opacity(0.08))
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("返回剪贴板")
-            .pointerCursor()
-
-            Text("关于")
-                .font(.system(size: 13, weight: .semibold))
-
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
     }
 
     // MARK: - 主卡片（图标 + 名称 + 版本 + 标语）

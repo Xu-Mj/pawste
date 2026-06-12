@@ -9,10 +9,10 @@ final class PasteboardWatcher {
 
     private(set) var items: [ClipboardItem] = []
 
-    // 是否正在异步处理图片（UI 用来显示 loading 占位条）
-    private(set) var isProcessingImage: Bool = false
-
-    private(set) var maxItems: Int
+    // 正在异步处理的图片数量（UI 用 isProcessingImage 显示 loading 占位条）
+    // 计数而非 Bool：两张图先后进入处理时，第一张完成不会提前关掉第二张的占位条
+    private var processingCount = 0
+    var isProcessingImage: Bool { processingCount > 0 }
 
     // MARK: - 内部状态
 
@@ -20,7 +20,7 @@ final class PasteboardWatcher {
     private var timer: Timer?
     private let pollingInterval: TimeInterval = 0.3
 
-    // 邻接去重用的轻量指纹（只跟"上一次"比）
+    // 邻接去重用的轻量指纹（只跟"上一次数据型图片"比）
     // 比全局 SHA256 便宜两个数量级
     private var lastImageSize: Int?
     private var lastImagePrefix: Data?
@@ -28,23 +28,25 @@ final class PasteboardWatcher {
     // 图片处理器（actor，自动串行 + 后台线程）
     private let imageProcessor: ImageProcessor
 
-    // MARK: - 持久化
+    // MARK: - 容量设置（UserDefaults 持久化）
 
-    private static let maxItemsKey = "maxItems"
-    private static let defaultMaxItems = 100
+    private enum SettingKey {
+        static let maxItems = "maxItems"
+        static let maxImages = "maxImages"
+        static let maxPinned = "maxPinned"
+    }
 
-    // 图片数量上限，从 UserDefaults 读，默认 20
-    // 文本几 KB 一条无所谓，图片每张几百 KB，单独限制
+    private(set) var maxItems: Int
+
+    // 图片数量上限：文本几 KB 一条无所谓，图片每张几百 KB，单独限制
     private(set) var maxImages: Int
-
-    private static let maxImagesKey = "maxImages"
-    private static let defaultMaxImages = 20
 
     // 置顶条数上限（可配）
     private(set) var maxPinned: Int
 
-    private static let maxPinnedKey = "maxPinned"
-    private static let defaultMaxPinned = 5
+    // 单条文本上限（5MB）：超大文本（整页日志等）会拖慢搜索过滤和 JSON 全量落盘，
+    // 直接不收录（和图片 maxImageBytes 的"超限拒绝"策略一致，绝不截断——粘贴必须是原文）
+    private static let maxTextBytes = 5 * 1024 * 1024
 
     // 持久化委托给 HistoryStore（编解码 + 防抖写盘 + 文件路径）
     private let store = HistoryStore()
@@ -52,14 +54,9 @@ final class PasteboardWatcher {
     // MARK: - 生命周期
 
     init() {
-        let stored = UserDefaults.standard.integer(forKey: Self.maxItemsKey)
-        self.maxItems = stored > 0 ? stored : Self.defaultMaxItems
-
-        let storedImages = UserDefaults.standard.integer(forKey: Self.maxImagesKey)
-        self.maxImages = storedImages > 0 ? storedImages : Self.defaultMaxImages
-
-        let storedPinned = UserDefaults.standard.integer(forKey: Self.maxPinnedKey)
-        self.maxPinned = storedPinned > 0 ? storedPinned : Self.defaultMaxPinned
+        self.maxItems = Self.storedLimit(SettingKey.maxItems, default: 100)
+        self.maxImages = Self.storedLimit(SettingKey.maxImages, default: 20)
+        self.maxPinned = Self.storedLimit(SettingKey.maxPinned, default: 5)
 
         self.lastChangeCount = NSPasteboard.general.changeCount
         self.imageProcessor = ImageProcessor(imagesDir: HistoryStore.imagesDir)
@@ -70,17 +67,16 @@ final class PasteboardWatcher {
         log("📂 加载历史 \(items.count) 条（其中图片 \(imageCount) 张）")
     }
 
-    deinit {
-        timer?.invalidate()
-        log("🗑️ PasteboardWatcher 已释放")
-    }
-
     // MARK: - 公开 API
 
     func start() {
         guard timer == nil else { return }
+        // Timer block 是 @Sendable，但 scheduledTimer 注册在主 RunLoop、只会在主线程触发，
+        // assumeIsolated 把这一事实告诉编译器（错了会在运行时 trap，而不是静默数据竞争）
         timer = Timer.scheduledTimer(withTimeInterval: pollingInterval, repeats: true) { [weak self] _ in
-            self?.check()
+            MainActor.assumeIsolated {
+                self?.check()
+            }
         }
         log("📋 PasteboardWatcher 启动，轮询 \(Int(pollingInterval * 1000))ms，容量 \(maxItems)")
     }
@@ -110,16 +106,8 @@ final class PasteboardWatcher {
 
         var item = items.remove(at: index)
         item.isPinned.toggle()
-
-        if item.isPinned {
-            // 置顶：移到最顶
-            items.insert(item, at: 0)
-            log("📌 已置顶 (共 \(pinnedCount) 条)")
-        } else {
-            // 取消置顶：移到非置顶组的开头
-            items.insert(item, at: pinnedCount)
-            log("📌 已取消置顶")
-        }
+        insertAtGroupHead(item)
+        log(item.isPinned ? "📌 已置顶 (共 \(pinnedCount) 条)" : "📌 已取消置顶")
 
         scheduleSave()
         return true
@@ -181,39 +169,29 @@ final class PasteboardWatcher {
     }
 
     func setMaxItems(_ n: Int) {
-        guard n > 0, n != maxItems else { return }
-        self.maxItems = n
-        UserDefaults.standard.set(n, forKey: Self.maxItemsKey)
+        guard updateLimit(&maxItems, to: n, key: SettingKey.maxItems) else { return }
         evictIfNeeded()  // 复用统一的裁剪逻辑，图片文件连带删
         scheduleSave()
         log("📐 文本上限改为 \(n)")
     }
 
     func setMaxImages(_ n: Int) {
-        guard n > 0, n != maxImages else { return }
-        self.maxImages = n
-        UserDefaults.standard.set(n, forKey: Self.maxImagesKey)
+        guard updateLimit(&maxImages, to: n, key: SettingKey.maxImages) else { return }
         evictIfNeeded()
         scheduleSave()
         log("🖼️ 图片上限改为 \(n)")
     }
 
     func setMaxPinned(_ n: Int) {
-        guard n > 0, n != maxPinned else { return }
-        self.maxPinned = n
-        UserDefaults.standard.set(n, forKey: Self.maxPinnedKey)
+        guard updateLimit(&maxPinned, to: n, key: SettingKey.maxPinned) else { return }
         log("📌 置顶上限改为 \(n)")
         // 如果当前已置顶数 > 新上限，超出部分取消置顶（最末的先）
         // 这样用户调小上限不会出现"超出但还显示着"的尴尬状态
         while pinnedCount > maxPinned {
-            // 找最后一条置顶（在置顶组的末尾位置）
-            if let lastPinnedIndex = items.lastIndex(where: { $0.isPinned }) {
-                var item = items.remove(at: lastPinnedIndex)
-                item.isPinned = false
-                items.insert(item, at: pinnedCount)
-            } else {
-                break
-            }
+            guard let lastPinnedIndex = items.lastIndex(where: { $0.isPinned }) else { break }
+            var item = items.remove(at: lastPinnedIndex)
+            item.isPinned = false
+            insertAtGroupHead(item)
         }
         scheduleSave()
     }
@@ -226,6 +204,22 @@ final class PasteboardWatcher {
     // 给 UI / paste-back 用：根据 filename 拿到完整 PNG 数据
     func loadImageData(filename: String) async -> Data? {
         await imageProcessor.loadFullImageData(filename: filename)
+    }
+
+    // MARK: - 设置持久化辅助
+
+    // 读 UserDefaults 里的上限值，没存过（0）用默认
+    private static func storedLimit(_ key: String, default defaultValue: Int) -> Int {
+        let stored = UserDefaults.standard.integer(forKey: key)
+        return stored > 0 ? stored : defaultValue
+    }
+
+    // 三个上限 setter 的公共骨架：校验 + 赋值 + 持久化；返回是否真的变了
+    private func updateLimit(_ limit: inout Int, to n: Int, key: String) -> Bool {
+        guard n > 0, n != limit else { return false }
+        limit = n
+        UserDefaults.standard.set(n, forKey: key)
+        return true
     }
 
     // 防抖保存当前 items 快照
@@ -246,13 +240,13 @@ final class PasteboardWatcher {
         //   2. 图片数据（screenshot / 网页复制等）
         //   3. 纯文本
 
-        if let (data, path) = readImageFromFile(pb) {
-            handleImage(data: data, sourcePath: path)
+        if let url = readImageFileURL(pb) {
+            handleImageFile(url)
             return
         }
 
         if let data = readImageData(pb) {
-            handleImage(data: data, sourcePath: nil)
+            handleImageData(data)
             return
         }
 
@@ -271,20 +265,20 @@ final class PasteboardWatcher {
         "png", "jpg", "jpeg", "tiff", "tif", "gif", "bmp", "heic", "heif", "webp"
     ]
 
-    // 检测 "用户从 Finder 复制了一个图片文件"：剪贴板有 fileURL
-    // 返回 (图片数据, 文件路径)；不是图片文件则返回 nil
-    private func readImageFromFile(_ pb: NSPasteboard) -> (Data, String)? {
+    // 检测"用户从 Finder 复制了一个图片文件"：剪贴板有指向图片的 fileURL
+    //
+    // 只做扩展名 + 可读性检查，不在主线程读文件内容——
+    // 大图的实际读取在 ImageProcessor（后台 actor）里完成
+    //
+    // 注意：多选复制多个图片文件时只收录第一个（刻意取舍：保持"一次复制 = 一条历史"的模型）
+    private func readImageFileURL(_ pb: NSPasteboard) -> URL? {
         guard let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] else {
             return nil
         }
-        for url in urls {
-            let ext = url.pathExtension.lowercased()
-            guard Self.imageExtensions.contains(ext) else { continue }
-            // 读文件内容
-            guard let data = try? Data(contentsOf: url) else { continue }
-            return (data, url.path)
+        return urls.first { url in
+            Self.imageExtensions.contains(url.pathExtension.lowercased())
+                && FileManager.default.isReadableFile(atPath: url.path)
         }
-        return nil
     }
 
     // 检测纯图片数据
@@ -304,43 +298,52 @@ final class PasteboardWatcher {
     // MARK: - 处理逻辑：文本
 
     private func addText(_ text: String) {
+        // 任何文本复制都打断图片"邻接"（即使下面因过大被跳过），指纹只描述上一次数据型图片
+        lastImageSize = nil
+        lastImagePrefix = nil
+
+        guard text.utf8.count <= Self.maxTextBytes else {
+            log("⚠️ 文本过大（\(text.utf8.count / 1024 / 1024)MB），不收录")
+            return
+        }
+
         if let existingIndex = items.firstIndex(where: { $0.kind.asText == text }) {
             // 已存在：保留 isPinned 状态，移到所属组的开头
-            //   - 原本置顶 → 移到列表最顶（置顶组开头）
-            //   - 原本非置顶 → 移到非置顶组开头（即所有置顶之后）
-            let existing = items.remove(at: existingIndex)
-            let insertIndex = existing.isPinned ? 0 : pinnedCount
-            items.insert(existing, at: insertIndex)
+            insertAtGroupHead(items.remove(at: existingIndex))
             log("🔄 重排文本到顶部")
         } else {
-            // 新内容总是非置顶，插入"非置顶组"的开头
-            items.insert(ClipboardItem(kind: .text(text)), at: pinnedCount)
+            // 新内容总是非置顶，落在"非置顶组"的开头
+            insertAtGroupHead(ClipboardItem(kind: .text(text)))
             evictIfNeeded()
             log("➕ 新文本 (共 \(items.count) 条)")
         }
-        // 文本路径清掉图片指纹，避免误判
-        lastImageSize = nil
-        lastImagePrefix = nil
         scheduleSave()
     }
 
     // MARK: - 处理逻辑：图片
 
-    private func handleImage(data: Data, sourcePath: String?) {
-        // === 去重层 1：sourcePath（精准、便宜）===
-        // 用户在 Finder 反复按 ⌘C 同一个文件 → path 一致 → 直接挪到顶
-        if let path = sourcePath,
-           let existingIndex = items.firstIndex(where: { $0.kind.asImage?.sourcePath == path }) {
-            let existing = items.remove(at: existingIndex)
-            // 保留置顶状态：置顶 → 顶部；非置顶 → 非置顶组开头
-            let insertIndex = existing.isPinned ? 0 : pinnedCount
-            items.insert(existing, at: insertIndex)
+    // Finder 复制的图片文件：sourcePath 去重（精准、便宜）后交给 actor 处理
+    private func handleImageFile(_ url: URL) {
+        // 用户在 Finder 反复按 ⌘C 同一个文件 → path 一致 → 直接挪回组头
+        let path = url.path
+        if let existingIndex = items.firstIndex(where: { $0.kind.asImage?.sourcePath == path }) {
+            insertAtGroupHead(items.remove(at: existingIndex))
             log("🔄 重排图片（按 sourcePath）到顶部: \(path)")
             scheduleSave()
             return
         }
 
-        // === 去重层 2：邻接指纹（针对截图等纯数据复制）===
+        // 文件复制打断"邻接"：指纹只描述上一次数据型图片
+        lastImageSize = nil
+        lastImagePrefix = nil
+
+        runImageProcessing { [imageProcessor] in
+            await imageProcessor.processFile(at: url)
+        }
+    }
+
+    // 数据型图片（截图、网页复制等）：邻接指纹去重后交给 actor 处理
+    private func handleImageData(_ data: Data) {
         // 只跟"上一次"比，O(1) 检测最常见的"误按两次 ⌘C"
         if data.count == lastImageSize,
            data.prefix(256) == lastImagePrefix {
@@ -352,27 +355,37 @@ final class PasteboardWatcher {
         lastImageSize = data.count
         lastImagePrefix = data.prefix(256)
 
-        // === 进入异步处理 ===
-        isProcessingImage = true
+        runImageProcessing { [imageProcessor] in
+            await imageProcessor.process(data: data)
+        }
+    }
+
+    // 两条图片路径共用的异步骨架：计数 → actor 处理 → 回主线程入列表
+    private func runImageProcessing(_ process: @escaping () async -> ClipboardItem.ImageEntry?) {
+        processingCount += 1
 
         // Task @MainActor：以主线程为起点
-        // await imageProcessor.process(...) 内部切到 actor 的 executor（后台）
-        // 处理完成后自动回主线程（因为我们是 @MainActor）
+        // await process() 内部切到 actor 的 executor（后台），完成后自动回主线程
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.isProcessingImage = false }
+            defer { self.processingCount -= 1 }
 
-            guard let entry = await self.imageProcessor.process(data: data, sourcePath: sourcePath) else {
-                return
-            }
+            guard let entry = await process() else { return }
 
             // 这里已经回到主线程，安全修改 items
-            // 新图片总是非置顶，插入到"非置顶组"的开头（即所有置顶之后）
-            let item = ClipboardItem(kind: .image(entry))
-            self.items.insert(item, at: self.pinnedCount)
+            // 新图片总是非置顶，落在"非置顶组"的开头（即所有置顶之后）
+            self.insertAtGroupHead(ClipboardItem(kind: .image(entry)))
             self.evictIfNeeded()
             self.scheduleSave()
         }
+    }
+
+    // MARK: - 排序
+
+    // 把条目插到所属组的开头：置顶组 = 列表最顶（0），非置顶组 = 所有置顶项之后
+    // togglePin / addText / 图片入库 / setMaxPinned 降级共用这一条排序规则
+    private func insertAtGroupHead(_ item: ClipboardItem) {
+        items.insert(item, at: item.isPinned ? 0 : pinnedCount)
     }
 
     // MARK: - 容量管理

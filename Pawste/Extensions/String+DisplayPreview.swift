@@ -10,10 +10,13 @@ import Foundation
 //
 // 处理顺序：
 //   1. 去前后空白和换行（避免 ↵↵hello 这种开头一堆符号的视觉噪音）
-//   2. CRLF (\r\n) 先于 \n / \r 替换，否则 Windows 复制来的会出现两个 ↵
+//   2. 截前 200 字符——预览只渲染一行（lineLimit(1)），360pt 宽的行肉眼可见的就
+//      开头几十个字符，没必要对几 MB 的大文本全量做替换
+//   3. CRLF (\r\n) 先于 \n / \r 替换，否则 Windows 复制来的会出现两个 ↵
 extension String {
     var displayPreview: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(200)
             .replacingOccurrences(of: "\r\n", with: "↵")
             .replacingOccurrences(of: "\n", with: "↵")
             .replacingOccurrences(of: "\r", with: "↵")

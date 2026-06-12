@@ -43,6 +43,7 @@ Pawste/
 │   ├── ItemRow.swift            列表单行（文本/图片双类型渲染）
 │   ├── ProcessingRow.swift      图片处理中占位条
 │   ├── PinnedChip.swift         置顶区水平滚动的 chip
+│   ├── PanelHeader.swift        设置/关于页共用顶栏（返回按钮 + 标题）
 │   ├── SettingsView.swift       偏好设置（嵌在 popup 里，不是独立窗口）
 │   └── AboutView.swift          关于页（嵌在 popup，.about 模式）
 ├── Extensions/

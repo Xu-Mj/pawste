@@ -7,7 +7,11 @@ import Foundation
 //   - Codable 自动支持（Swift 5.5+ 对 enum with associated values 自动合成）
 //
 // id / copiedAt 是所有 kind 共有的元数据
-struct ClipboardItem: Identifiable, Hashable, Codable {
+//
+// nonisolated：项目默认隔离是 MainActor，纯值类型显式退出——
+// ImageProcessor（后台 actor）要构造 ImageEntry，HistoryStore 要在后台线程编码，
+// 不标记的话 Codable 合成和构造都被绑在主线程
+nonisolated struct ClipboardItem: Identifiable, Codable {
 
     let id: UUID
     let kind: Kind
@@ -43,7 +47,7 @@ struct ClipboardItem: Identifiable, Hashable, Codable {
         case id, kind, copiedAt, isPinned
     }
 
-    enum Kind: Hashable, Codable {
+    nonisolated enum Kind: Codable {
         case text(String)
         case image(ImageEntry)
     }
@@ -52,7 +56,7 @@ struct ClipboardItem: Identifiable, Hashable, Codable {
     //
     // 注意：原图二进制不存这里，只存元数据 + 缩略图
     // 原图存在磁盘 ~/Library/Application Support/Pawste/images/<filename>
-    struct ImageEntry: Hashable, Codable {
+    nonisolated struct ImageEntry: Codable {
         // 我们自己的存储文件名，"<uuid>.png"，全局唯一
         let filename: String
 
@@ -77,7 +81,7 @@ struct ClipboardItem: Identifiable, Hashable, Codable {
 }
 
 // 便利访问器：在 firstIndex(where:) 等场景下少写一堆 if case let
-extension ClipboardItem.Kind {
+nonisolated extension ClipboardItem.Kind {
     var asText: String? {
         if case .text(let s) = self { return s }
         return nil

@@ -33,7 +33,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            PanelHeader(title: "偏好设置", onBack: onBack)
             Form {
                 generalSection
                 shortcutSection
@@ -44,36 +44,6 @@ struct SettingsView: View {
         }
         // 注意：不再设 .glassEffect 和 .frame
         // 这些由 ContentView（外层容器）统一管理，避免双层玻璃叠加
-    }
-
-    // MARK: - 顶栏（带返回按钮）
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            // 返回按钮（左上）
-            Button {
-                onBack()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.glassPrimary)
-                    .frame(width: 24, height: 24)
-                    .background(
-                        Circle().fill(Color.glassPrimary.opacity(0.08))
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("返回剪贴板")
-            .pointerCursor()
-
-            Text("偏好设置")
-                .font(.system(size: 13, weight: .semibold))
-
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
     }
 
     // MARK: - 设置分组

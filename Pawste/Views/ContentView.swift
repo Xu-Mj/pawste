@@ -26,19 +26,22 @@ struct ContentView: View {
 
     // 子串匹配（不区分大小写），同时支持文本和图片 displayName
     // 空查询直接返回原 items，避免无谓的 filter 调用
+    // 用 range(of:options:) 而不是 lowercased().contains：后者每条都分配一份全文小写副本
     private func filter(_ items: [ClipboardItem]) -> [ClipboardItem] {
-        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return items }
         return items.filter { item in
             switch item.kind {
             case .text(let s):
-                return s.lowercased().contains(q)
+                return s.range(of: q, options: .caseInsensitive) != nil
             case .image(let entry):
-                return entry.displayName.lowercased().contains(q)
+                return entry.displayName.range(of: q, options: .caseInsensitive) != nil
             }
         }
     }
 
+    // 计算属性，每次访问都重新过滤——渲染路径上不要直接用！
+    // listMode 里每帧只算一次再往下传参；这两个属性只给事件处理器（单次调用）用
     private var filteredPinned: [ClipboardItem] { filter(watcher.pinnedItems) }
     private var filteredUnpinned: [ClipboardItem] { filter(watcher.unpinnedItems) }
 
@@ -135,15 +138,11 @@ struct ContentView: View {
                 uiState.mode = .list
                 return .handled
             }
-            // 搜索框聚焦中：先解搜索（非空 → 清；空 → 失焦）
+            // 搜索框聚焦中：先解搜索
             // 注意：这条 outer handler 在 TextField 没消费 Esc 时才触发；
             // 但稳妥起见我们在这里也兜底一次
             if searchFocused {
-                if searchQuery.isEmpty {
-                    searchFocused = false
-                } else {
-                    searchQuery = ""
-                }
+                handleSearchEscape()
                 return .handled
             }
             // 普通 list 状态：关闭 popup
@@ -186,19 +185,23 @@ struct ContentView: View {
             selectedID = filteredUnpinned.first?.id
         }
         .onAppear {
-            Task { @MainActor in
-                selectedID = watcher.unpinnedItems.first?.id
-            }
+            selectedID = watcher.unpinnedItems.first?.id
         }
     }
 
     // 剪贴板列表模式的整体布局
+    // 过滤结果在这里算一次传下去：filteredPinned/Unpinned 是计算属性，
+    // 各子区域直接访问的话一帧要把全部条目过滤好几遍（搜索时每个 keystroke 都重渲染）
     private var listMode: some View {
-        VStack(spacing: 0) {
+        let pinned = filteredPinned
+        let unpinned = filteredUnpinned
+        // ⌘N 永远指向全量置顶列表（不受搜索过滤影响），footer 提示数也用全量
+        let pinnedShortcutCount = min(watcher.pinnedItems.count, 9)
+        return VStack(spacing: 0) {
             header
-            pinnedSection
-            content
-            footer
+            pinnedSection(pinned)
+            content(pinned: pinned, unpinned: unpinned)
+            footer(unpinnedCount: unpinned.count, pinnedShortcutCount: pinnedShortcutCount)
         }
     }
 
@@ -206,8 +209,7 @@ struct ContentView: View {
     // 搜索时也跟随过滤 —— 搜索意图是"在所有内容里找"，不该把置顶项排除在外
     // chip 宽度由 PinnedChip 自管理：文本 100、图片 32（正方形）
     @ViewBuilder
-    private var pinnedSection: some View {
-        let pinned = filteredPinned
+    private func pinnedSection(_ pinned: [ClipboardItem]) -> some View {
         if !pinned.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -242,15 +244,15 @@ struct ContentView: View {
     // 搜索框：放大镜图标 + TextField + 清除 × 按钮（仅在有内容时显示）
     private var searchField: some View {
         HStack(spacing: 6) {
-            // 用固定白色不透明度，不用 .secondary
-            // Liquid Glass 的 vibrancy 会拿浮窗背后内容做混合，把层级色冲淡到几乎看不见
-            // （真实显示时淡、截图反而清楚就是这个原因）；显式颜色不走 vibrancy，渲染稳定
+            // 玻璃语义色（固定白色不透明度，不走 vibrancy）：
+            // Liquid Glass 的 vibrancy 会拿浮窗背后内容混合层级色，冲淡到几乎看不见
+            // （真实显示时淡、截图反而清楚就是这个原因），见 Color+Glass
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.65))
+                .foregroundStyle(.glassSecondary)
 
             TextField("搜索", text: $searchQuery,
-                      prompt: Text("搜索").foregroundColor(.white.opacity(0.4)))
+                      prompt: Text("搜索").foregroundColor(.glassTertiary))
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(.white)
@@ -258,11 +260,7 @@ struct ContentView: View {
                 .onSubmit { triggerSelected() }
                 // 局部 Esc 处理：把"清查询 / 失焦"留在框内消费，不冒到外层关 popup
                 .onKeyPress(.escape) {
-                    if searchQuery.isEmpty {
-                        searchFocused = false
-                    } else {
-                        searchQuery = ""
-                    }
+                    handleSearchEscape()
                     return .handled
                 }
 
@@ -272,7 +270,7 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(.glassTertiary)
                 }
                 .buttonStyle(.plain)
                 .help("清除搜索")
@@ -300,7 +298,7 @@ struct ContentView: View {
         } label: {
             Image(systemName: "gearshape")
                 .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.65))
+                .foregroundStyle(.glassSecondary)
         }
         .buttonStyle(.borderless)
         .help("偏好设置")
@@ -313,7 +311,7 @@ struct ContentView: View {
         } label: {
             Image(systemName: "trash")
                 .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.65))
+                .foregroundStyle(.glassSecondary)
         }
         .buttonStyle(.borderless)
         .disabled(watcher.items.isEmpty)
@@ -324,15 +322,15 @@ struct ContentView: View {
     // MARK: - Content
 
     @ViewBuilder
-    private var content: some View {
+    private func content(pinned: [ClipboardItem], unpinned: [ClipboardItem]) -> some View {
         if watcher.items.isEmpty && !watcher.isProcessingImage {
             // 库本身为空
             emptyState
-        } else if filteredUnpinned.isEmpty && filteredPinned.isEmpty && isSearching {
+        } else if unpinned.isEmpty && pinned.isEmpty && isSearching {
             // 库有内容但当前过滤无匹配
             noMatchState
         } else {
-            itemList
+            itemList(unpinned)
         }
     }
 
@@ -368,7 +366,7 @@ struct ContentView: View {
         .padding(.vertical, 40)
     }
 
-    private var itemList: some View {
+    private func itemList(_ unpinned: [ClipboardItem]) -> some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 1) {
@@ -379,7 +377,7 @@ struct ContentView: View {
                     }
 
                     // 列表区只显示非置顶项（置顶项在 pinnedSection 单独渲染）
-                    ForEach(Array(filteredUnpinned.enumerated()), id: \.element.id) { index, item in
+                    ForEach(Array(unpinned.enumerated()), id: \.element.id) { index, item in
                         ItemRow(
                             item: item,
                             index: index,
@@ -418,17 +416,19 @@ struct ContentView: View {
     // MARK: - Footer
 
     // 间距 4：HStack 在 360 宽 popup 里偏紧；所有 Text 加 .fixedSize 禁止 SwiftUI 自动换行
-    // 计数显示过滤后数量；带搜索时多展示一行"已过滤"指示
-    private var footer: some View {
+    // 计数显示过滤后数量；⌘N 提示跟随实际置顶数（没有置顶时整段隐藏）
+    private func footer(unpinnedCount: Int, pinnedShortcutCount: Int) -> some View {
         HStack(spacing: 4) {
-            Text("\(filteredUnpinned.count) 条")
+            Text("\(unpinnedCount) 条")
                 .fixedSize(horizontal: true, vertical: false)
             Text("·")
             Text("1-9 粘贴")
                 .fixedSize(horizontal: true, vertical: false)
-            Text("·")
-            Text("⌘1-5 置顶")
-                .fixedSize(horizontal: true, vertical: false)
+            if pinnedShortcutCount > 0 {
+                Text("·")
+                Text(pinnedShortcutCount == 1 ? "⌘1 置顶" : "⌘1-\(pinnedShortcutCount) 置顶")
+                    .fixedSize(horizontal: true, vertical: false)
+            }
             Text("·")
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 9))
@@ -502,6 +502,16 @@ struct ContentView: View {
         } else {
             let newIndex = min(oldIndex, newItems.count - 1)
             selectedID = newItems[newIndex].id
+        }
+    }
+
+    // 搜索框的 Esc 行为：非空先清查询，空则失焦
+    // TextField 内层和外层路由两处共用（外层是 TextField 没消费 Esc 时的兜底）
+    private func handleSearchEscape() {
+        if searchQuery.isEmpty {
+            searchFocused = false
+        } else {
+            searchQuery = ""
         }
     }
 

@@ -23,6 +23,14 @@ actor ImageProcessor {
 
     private let imagesDir: URL
 
+    // 数据型图片（截图等）兜底显示名的格式器
+    // DateFormatter 构造是毫秒级开销，缓存复用；actor 隔离保证线程安全
+    private let screenshotNameFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd_HHmmss"
+        return f
+    }()
+
     init(imagesDir: URL) {
         self.imagesDir = imagesDir
         try? FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
@@ -30,61 +38,44 @@ actor ImageProcessor {
 
     // MARK: - 主入口
 
-    // 处理一份图片数据，返回可存进 items 的 ImageEntry；失败返回 nil
-    func process(data: Data, sourcePath: String?) -> ClipboardItem.ImageEntry? {
-        // 1. 尺寸预检
+    // 处理剪贴板里的图片数据（截图、网页复制等），返回可存进 items 的 ImageEntry；失败返回 nil
+    func process(data: Data) -> ClipboardItem.ImageEntry? {
         guard data.count <= Self.maxImageBytes else {
             log("⚠️ 图片过大（\(data.count / 1024 / 1024)MB），跳过")
             return nil
         }
 
-        // 2. 建 source（兼容 PNG/JPEG/TIFF/GIF/BMP/HEIC 等 ImageIO 支持的所有格式）
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(src) > 0 else {
             log("⚠️ 图片解码失败")
             return nil
         }
 
-        // 3. 读像素尺寸（只读 metadata，不解码全图）
-        guard let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-              let width = props[kCGImagePropertyPixelWidth] as? Int,
-              let height = props[kCGImagePropertyPixelHeight] as? Int,
-              width > 0, height > 0 else {
-            log("⚠️ 图片尺寸异常")
+        // 已是 PNG（系统截图、网页复制的最常见情况）：原始数据直写，
+        // 跳过"解全图 + 重编码"这两步最重的操作
+        let strategy: WriteStrategy = Self.isPNG(src) ? .writeData(data) : .transcode
+        return makeEntry(from: src, sourcePath: nil, originalBytes: data.count, strategy: strategy)
+    }
+
+    // 处理 Finder 复制的图片文件
+    // 直接从 URL 建 CGImageSource：原图不经过主线程，也不必整个读进内存
+    //（PNG 文件直接 copyItem，ImageIO 读尺寸/缩略图只取需要的字节）
+    func processFile(at url: URL) -> ClipboardItem.ImageEntry? {
+        let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        guard bytes <= Self.maxImageBytes else {
+            log("⚠️ 图片文件过大（\(bytes / 1024 / 1024)MB），跳过")
             return nil
         }
 
-        // 4. 解出完整 CGImage → 归一化编码成 PNG
-        guard let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil),
-              let pngData = encodePNG(cgImage) else {
-            log("⚠️ PNG 编码失败")
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              CGImageSourceGetCount(src) > 0 else {
+            log("⚠️ 图片文件解码失败: \(url.path)")
             return nil
         }
 
-        // 5. 写盘（.atomic：先写临时文件再 rename，断电不留半截）
-        let filename = "\(UUID().uuidString).png"
-        let fileURL = imagesDir.appendingPathComponent(filename)
-        do {
-            try pngData.write(to: fileURL, options: .atomic)
-        } catch {
-            log("⚠️ 写图片文件失败: \(error.localizedDescription)")
-            return nil
-        }
-
-        // 6. 缩略图 + displayName
-        let thumbnailData = makeThumbnail(from: src) ?? Data()
-        let displayName = computeDisplayName(sourcePath: sourcePath)
-
-        log("➕ 图片入库: \(displayName) (\(width)×\(height), \(data.count / 1024)KB)")
-
-        return ClipboardItem.ImageEntry(
-            filename: filename,
-            displayName: displayName,
-            sourcePath: sourcePath,
-            width: width,
-            height: height,
-            thumbnail: thumbnailData
-        )
+        // PNG 文件直接 copy，不过解码管线
+        let strategy: WriteStrategy = Self.isPNG(src) ? .copyFile(url) : .transcode
+        return makeEntry(from: src, sourcePath: url.path, originalBytes: bytes, strategy: strategy)
     }
 
     // 删除某个图片文件（item 被 evict / 删除时调用）
@@ -99,7 +90,85 @@ actor ImageProcessor {
         return try? Data(contentsOf: url)
     }
 
+    // MARK: - 共享管线
+
+    // 原图落盘策略：已是 PNG 的来源直接搬运字节，其余走解码重编码
+    // nonisolated：纯数据，构造点跨 actor/MainActor（默认隔离会把嵌套类型绑到 MainActor）
+    private nonisolated enum WriteStrategy {
+        case writeData(Data)   // 剪贴板里的 PNG 数据，原样写盘
+        case copyFile(URL)     // 磁盘上的 PNG 文件，直接 copy
+        case transcode         // 非 PNG：解码 → PNG 重编码
+    }
+
+    // 两个入口共用的后半段：读尺寸 → 按策略写盘 → 缩略图 + 显示名
+    private func makeEntry(
+        from src: CGImageSource,
+        sourcePath: String?,
+        originalBytes: Int,
+        strategy: WriteStrategy
+    ) -> ClipboardItem.ImageEntry? {
+        // 读像素尺寸（只读 metadata，不解码全图）
+        guard let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? Int,
+              let height = props[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0 else {
+            log("⚠️ 图片尺寸异常")
+            return nil
+        }
+
+        let filename = "\(UUID().uuidString).png"
+        let fileURL = imagesDir.appendingPathComponent(filename)
+        do {
+            switch strategy {
+            case .writeData(let data):
+                // .atomic：先写临时文件再 rename，断电不留半截
+                try data.write(to: fileURL, options: .atomic)
+            case .copyFile(let url):
+                try FileManager.default.copyItem(at: url, to: fileURL)
+            case .transcode:
+                try transcodeToPNG(src, to: fileURL)
+            }
+        } catch {
+            log("⚠️ 写图片文件失败: \(error.localizedDescription)")
+            return nil
+        }
+
+        let thumbnailData = makeThumbnail(from: src) ?? Data()
+        let displayName = computeDisplayName(sourcePath: sourcePath)
+
+        log("➕ 图片入库: \(displayName) (\(width)×\(height), \(originalBytes / 1024)KB)")
+
+        return ClipboardItem.ImageEntry(
+            filename: filename,
+            displayName: displayName,
+            sourcePath: sourcePath,
+            width: width,
+            height: height,
+            thumbnail: thumbnailData
+        )
+    }
+
+    // nonisolated：默认隔离会把 actor 的 static 落到 MainActor，
+    // 从 actor 里调用就成了跨隔离传 CGImageSource；查询函数本身线程安全
+    private nonisolated static func isPNG(_ src: CGImageSource) -> Bool {
+        guard let type = CGImageSourceGetType(src) else { return false }
+        return UTType(type as String) == .png
+    }
+
     // MARK: - 编码 / 缩略图
+
+    // 非 PNG 源（TIFF/JPEG/HEIC 等）：解出完整 CGImage → 归一化编码成 PNG 写盘
+    private func transcodeToPNG(_ src: CGImageSource, to fileURL: URL) throws {
+        guard let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil),
+              let pngData = encodePNG(cgImage) else {
+            throw EncodeError()
+        }
+        try pngData.write(to: fileURL, options: .atomic)
+    }
+
+    private nonisolated struct EncodeError: Error, LocalizedError {
+        var errorDescription: String? { "PNG 编码失败" }
+    }
 
     // CGImage → PNG Data
     private func encodePNG(_ image: CGImage) -> Data? {
@@ -130,8 +199,6 @@ actor ImageProcessor {
         if let path = sourcePath {
             return (path as NSString).lastPathComponent
         }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
-        return "Screenshot_\(formatter.string(from: Date())).png"
+        return "Screenshot_\(screenshotNameFormatter.string(from: Date())).png"
     }
 }
