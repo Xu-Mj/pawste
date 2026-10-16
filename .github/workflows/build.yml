@@ -50,6 +50,17 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM=""
 
+      # 整包 ad-hoc 签名（关键，不能省）
+      # CODE_SIGNING_ALLOWED=NO 的产物只有链接器给 arm64 可执行文件打的 "linker-signed" 签名：
+      # 签名 identifier 是 "Pawste" 而不是 bundle ID、不绑定 Info.plist、x86_64 切片干脆没签名。
+      # 系统 TCC 按 bundle ID 记录"辅助功能"授权，运行时却认不出这个进程 →
+      # 设置里开关明明开着，App 仍然拿不到权限。codesign --sign - 补一个正规的整包 ad-hoc 签名
+      - name: Ad-hoc sign
+        run: |
+          codesign --force --deep --sign - build/Build/Products/Release/Pawste.app
+          codesign --verify --deep --strict --verbose=2 build/Build/Products/Release/Pawste.app
+          codesign -dv build/Build/Products/Release/Pawste.app 2>&1 | grep -E "Identifier|Signature|CDHash"
+
       # 打成 zip（ditto 保留 .app 包结构 + 资源 fork）
       # 注意：这个产物未签名未公证，仅供作者自测；普通用户下载会被 Gatekeeper 拦
       - name: Package app
