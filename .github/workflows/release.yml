@@ -72,6 +72,7 @@ jobs:
                - 右键 `Pawste.app` → 打开 → 在弹窗里再点「打开」
                - 或终端执行：`xattr -cr /Applications/Pawste.app`
             4. 首次按 `Enter` 粘贴时，到 系统设置 → 隐私与安全性 → 辅助功能 里勾选 Pawste
+               - **从旧版本升级**：旧授权对新版本无效（开关仍显示开启）。先在列表里 **−** 移除 Pawste 再重新添加，或执行 `tccutil reset Accessibility com.xumj.pawste` 后重新授权
 
             > ⚠️ 此构建未经 Apple 签名公证，仅供尝鲜。介意安全提示可自行从源码构建。
 

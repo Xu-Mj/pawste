@@ -84,6 +84,9 @@ Liquid Glass 的 vibrancy 会拿浮窗背后的实时内容混合 SwiftUI 层级
 ### 8. 图片处理只用 ImageIO/CoreGraphics，不要 NSImage
 `NSImage`/`NSBitmapImageRep`/`lockFocus` 在 Swift 6 是 main-actor 隔离，在 `ImageProcessor` actor（后台）里调会编译告警 + 离开主线程本就不安全。用 `CGImageSource`/`CGImageDestination`/`CGImageSourceCreateThumbnailAtIndex`（线程安全、非隔离）。
 
+### 9. 粘贴权限用 `CGPreflightPostEventAccess`，不要只靠 `AXIsProcessTrusted`
+App 开了 App Sandbox——沙盒 App 拿不到 AX 信任，`AXIsProcessTrusted` 永远 false，用户勾选了也照样提示"未授权"。我们只用 `CGEvent.post`，需要的是 PostEvent 权限（`CGPreflightPostEventAccess` / `CGRequestPostEventAccess`），沙盒内可用。另：CI 发布版未签名，每版签名不同，升级后旧授权失效但开关仍显示开启——要移除后重新添加。
+
 ## 持久化文件位置
 
 ```
