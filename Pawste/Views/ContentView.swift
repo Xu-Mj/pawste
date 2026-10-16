@@ -530,7 +530,7 @@ struct ContentView: View {
         searchQuery = ""
         searchFocused = false
         selectedID = watcher.unpinnedItems.first?.id
-        // 用户可能刚去系统设置开了权限，每次开窗都重新查一次（AXIsProcessTrusted 开销极小）
+        // 用户可能刚去系统设置开了权限，每次开窗都重新查一次（权限查询开销极小）
         hasAXPermission = Paster.hasAccessibilityPermission
     }
 }

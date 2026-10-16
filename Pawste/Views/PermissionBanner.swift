@@ -22,6 +22,10 @@ struct PermissionBanner: View {
                 Text("回车后内容已在剪贴板，可手动 ⌘V")
                     .font(.system(size: 9.5))
                     .foregroundStyle(.glassTertiary)
+                // 未签名构建每个版本签名都不同，系统里的旧授权记录对新版本无效但开关仍显示"已开"
+                Text("已勾选仍提示？在列表里用 − 移除 Pawste 后重新添加")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.glassTertiary)
             }
 
             Spacer(minLength: 6)

@@ -1,5 +1,5 @@
 import AppKit
-import ApplicationServices  // AXIsProcessTrusted 在这里
+import ApplicationServices  // AXIsProcessTrusted / CGPreflightPostEventAccess 在这里
 
 // 模拟 ⌘V 粘贴到当前前台 App 的工具
 //
@@ -15,22 +15,26 @@ enum Paster {
 
     // MARK: - 辅助功能权限
 
-    // 当前进程是否被授予了辅助功能权限
+    // 当前进程能否向其他 App 投递键盘事件（模拟 ⌘V 所需的权限）
     // 不弹框，只是查询。可以用来在 UI 上显示"请到设置开启权限"
+    //
+    // 为什么首选 CGPreflightPostEventAccess 而不是 AXIsProcessTrusted：
+    // 我们只用 CGEvent.post，需要的是"投递事件"权限（TCC PostEvent），不是完整的 AX API 权限。
+    // 本 App 开了 App Sandbox——沙盒 App 无法获得 AX 信任，AXIsProcessTrusted 永远返回 false，
+    // 即使用户已在 系统设置 → 辅助功能 里勾选了也一样（"明明授权了还提示没授权"的根因）。
+    // 而 PostEvent 权限沙盒内可用，且同样出现在"辅助功能"列表里。
+    // 非沙盒构建（CI 未签名产物不带 entitlements）里 AX 信任也意味着能投递事件，两者取或兜底。
     static var hasAccessibilityPermission: Bool {
-        AXIsProcessTrusted()
+        CGPreflightPostEventAccess() || AXIsProcessTrusted()
     }
 
-    // 请求辅助功能权限（弹出系统对话框引导用户去设置）
+    // 请求投递事件权限（首次会弹系统对话框引导用户去设置）
     // 用户必须手动到 系统设置 → 隐私与安全 → 辅助功能 里勾选我们的 App
     // 这是 macOS 强制的安全设计，App 不能绕过
+    // 不用 AXIsProcessTrustedWithOptions(prompt:)：沙盒内它不弹框也拿不到权限
     @discardableResult
     static func requestAccessibilityPermission() -> Bool {
-        // key = true：检查失败时自动弹系统提示对话框
-        // 不直接引用 kAXTrustedCheckOptionPrompt：它在 C 头里声明成全局 var，
-        // Swift 6 并发检查会报"shared mutable state"；其值是稳定的字面量，直接写出来
-        let options = ["AXTrustedCheckOptionPrompt": true]
-        return AXIsProcessTrustedWithOptions(options as CFDictionary)
+        CGRequestPostEventAccess()
     }
 
     // MARK: - 模拟粘贴

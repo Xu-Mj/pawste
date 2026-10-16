@@ -61,6 +61,8 @@ Pawste 通过模拟 ⌘V 把内容粘回原 App，这需要**辅助功能**权�
 
 **系统设置 → 隐私与安全性 → 辅助功能 → 勾选 Pawste**
 
+> **已经勾选了却仍提示未授权？** 发布版未签名，每个版本的代码签名都不同，系统里旧版本的授权记录对新版本无效，但开关仍显示为开启。在辅助功能列表里选中 Pawste 点 **−** 移除，再点 **+** 重新添加 `/Applications/Pawste.app`（或终端执行 `tccutil reset Accessibility com.xumj.pawste` 后重新授权），然后重启 Pawste。
+
 ---
 
 ## 使用
