@@ -23,6 +23,9 @@ actor ImageProcessor {
 
     private let imagesDir: URL
 
+    // 本次运行写入的图片文件名（removeOrphans 据此避开刚入库的新文件）
+    private var writtenThisSession: Set<String> = []
+
     // 数据型图片（截图等）兜底显示名的格式器
     // DateFormatter 构造是毫秒级开销，缓存复用；actor 隔离保证线程安全
     private let screenshotNameFormatter: DateFormatter = {
@@ -84,6 +87,27 @@ actor ImageProcessor {
         try? FileManager.default.removeItem(at: url)
     }
 
+    // 清理孤儿图片：images/ 里没有任何条目引用的文件
+    //
+    // 来源：历史 JSON 解码失败被清掉、或"图片已落盘但 1 秒防抖还没写 JSON"时崩溃——
+    // 这些文件之后再没人引用，会永远占着磁盘。启动时扫一遍。
+    // 跳过本次运行里刚写的文件：扫描与新图片入库都在本 actor 上执行，但跨 Task 不保证先后，
+    // 刚落盘、还没来得及进 items 的新文件绝不能误删（不用修改时间判断：copyItem 会保留原文件时间）
+    func removeOrphans(keeping referenced: Set<String>) {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: imagesDir.path) else { return }
+
+        var removed = 0
+        for name in names where !referenced.contains(name) && !writtenThisSession.contains(name) {
+            if (try? fm.removeItem(at: imagesDir.appendingPathComponent(name))) != nil {
+                removed += 1
+            }
+        }
+        if removed > 0 {
+            log("🧹 清理孤儿图片 \(removed) 个")
+        }
+    }
+
     // 加载完整 PNG 数据（粘贴时调用）
     func loadFullImageData(filename: String) -> Data? {
         let url = imagesDir.appendingPathComponent(filename)
@@ -132,6 +156,7 @@ actor ImageProcessor {
             log("⚠️ 写图片文件失败: \(error.localizedDescription)")
             return nil
         }
+        writtenThisSession.insert(filename)
 
         let thumbnailData = makeThumbnail(from: src) ?? Data()
         let displayName = computeDisplayName(sourcePath: sourcePath)

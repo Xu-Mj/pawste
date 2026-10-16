@@ -198,15 +198,20 @@ final class StatusBarController {
         // 因为图片场景需要 async 读盘
         Task { @MainActor in
             // 1. 写剪贴板（按类型分发）
+            let written: Bool
             switch item.kind {
             case .text(let text):
-                writeTextToPasteboard(text)
+                writeTextToPasteboard(text, itemID: item.id)
+                written = true
             case .image(let entry):
-                await writeImageToPasteboard(entry)
+                written = await writeImageToPasteboard(entry, itemID: item.id)
             }
 
             // 2. 隐藏 panel
             hidePanel()
+
+            // 图片文件丢失：剪贴板没动，不模拟粘贴（否则会把用户原有的剪贴板内容粘出去）
+            guard written else { return }
 
             // 3. 激活目标 App
             targetApp?.activate()
@@ -219,10 +224,13 @@ final class StatusBarController {
         }
     }
 
-    private func writeTextToPasteboard(_ text: String) {
+    private func writeTextToPasteboard(_ text: String, itemID: ClipboardItem.ID) {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+        // 告诉 watcher 这次剪贴板变化是我们自己写的，别当新复制收录（否则图片会重复入库）
+        // 必须紧跟在写剪贴板之后、中间没有 await，轮询才不可能插进来
+        watcher.notePasteboardWrite(of: itemID)
     }
 
     // 写图片到剪贴板：只写 PNG 数据，不写 fallback 文本
@@ -232,16 +240,19 @@ final class StatusBarController {
     //
     // 副作用：粘到完全不支持图片的 App（Terminal）时什么都不发生
     // —— 这是合理的，用户知道终端粘不了图
-    private func writeImageToPasteboard(_ entry: ClipboardItem.ImageEntry) async {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-
+    //
+    // 返回是否写入成功。先读到数据再清剪贴板：文件丢失时保留用户原有的剪贴板内容
+    private func writeImageToPasteboard(_ entry: ClipboardItem.ImageEntry, itemID: ClipboardItem.ID) async -> Bool {
         guard let data = await watcher.loadImageData(filename: entry.filename) else {
             log("⚠️ 图片文件丢失: \(entry.filename)")
-            return  // 文件丢失就什么都不写，simulatePaste 等于 no-op
+            return false
         }
 
+        let pb = NSPasteboard.general
+        pb.clearContents()
         pb.setData(data, forType: .png)
+        watcher.notePasteboardWrite(of: itemID)  // 同 writeTextToPasteboard
+        return true
     }
 
     // MARK: - 事件处理

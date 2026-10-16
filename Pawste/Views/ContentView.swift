@@ -27,6 +27,10 @@ struct ContentView: View {
     // 默认 true 避免启动瞬间误闪横幅
     @State private var hasAXPermission = true
 
+    // 清空按钮的二次确认：第一次点击进入"待确认"态（变红、3 秒后自动复位），再点才真清空
+    // 浮窗是 nonactivating 的 borderless panel，系统 alert/sheet 挂不稳，用就地确认代替
+    @State private var clearArmed = false
+
     // MARK: - 过滤
 
     // 子串匹配（不区分大小写），同时支持文本和图片 displayName
@@ -217,15 +221,19 @@ struct ContentView: View {
     // 置顶区：水平滚动的 chip 行
     // 搜索时也跟随过滤 —— 搜索意图是"在所有内容里找"，不该把置顶项排除在外
     // chip 宽度由 PinnedChip 自管理：文本 100、图片 32（正方形）
+    //
+    // ⌘N 角标用"在全量置顶列表里的位置"而不是过滤后的位置：
+    // ⌘1-9 的按键处理永远走全量 pinnedItems，角标必须和它一致，否则搜索时按 ⌘1 粘出的不是标着 ⌘1 的那条
     @ViewBuilder
     private func pinnedSection(_ pinned: [ClipboardItem]) -> some View {
         if !pinned.isEmpty {
+            let allPinnedIDs = watcher.pinnedItems.map(\.id)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(Array(pinned.enumerated()), id: \.element.id) { index, item in
+                    ForEach(pinned) { item in
                         PinnedChip(
                             item: item,
-                            index: index,
+                            index: allPinnedIDs.firstIndex(of: item.id) ?? 9,  // 9 = 无快捷键，不显示角标
                             onTap: { onSelect(item) },
                             onUnpin: { watcher.togglePin(id: item.id) }
                         )
@@ -314,18 +322,38 @@ struct ContentView: View {
         .pointerCursor()
     }
 
+    // 清空历史（保留置顶），需二次确认：误点一下不该把整个历史连同图片文件一起删掉
     private var clearButton: some View {
         Button {
-            watcher.clear()
+            if clearArmed {
+                clearArmed = false
+                watcher.clear()
+                selectedID = nil
+            } else {
+                clearArmed = true
+            }
         } label: {
-            Image(systemName: "trash")
-                .font(.system(size: 12))
-                .foregroundStyle(.glassSecondary)
+            if clearArmed {
+                Text("确认清空")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.red)
+                    .fixedSize()
+            } else {
+                Image(systemName: "trash")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.glassSecondary)
+            }
         }
         .buttonStyle(.borderless)
-        .disabled(watcher.items.isEmpty)
-        .help("清空历史")
+        .disabled(watcher.unpinnedItems.isEmpty)
+        .help(clearArmed ? "再点一次清空（置顶条目保留）" : "清空历史（置顶条目保留）")
         .pointerCursor()
+        // 进入待确认态后 3 秒没再点就自动复位；clearArmed 变化会取消上一轮计时
+        .task(id: clearArmed) {
+            guard clearArmed else { return }
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { clearArmed = false }
+        }
     }
 
     // MARK: - Content
@@ -471,7 +499,11 @@ struct ContentView: View {
     private func moveSelection(by delta: Int) {
         let items = filteredUnpinned
         guard !items.isEmpty else { return }
-        let currentIndex = items.firstIndex(where: { $0.id == selectedID }) ?? 0
+        // 当前没有选中（或选中项已不在列表里）：任何方向键都先选中第一条，不跳过它
+        guard let currentIndex = items.firstIndex(where: { $0.id == selectedID }) else {
+            selectedID = items.first?.id
+            return
+        }
         let newIndex = max(0, min(items.count - 1, currentIndex + delta))
         selectedID = items[newIndex].id
     }
@@ -529,6 +561,7 @@ struct ContentView: View {
     private func resetEphemeralState() {
         searchQuery = ""
         searchFocused = false
+        clearArmed = false
         selectedID = watcher.unpinnedItems.first?.id
         // 用户可能刚去系统设置开了权限，每次开窗都重新查一次（权限查询开销极小）
         hasAXPermission = Paster.hasAccessibilityPermission

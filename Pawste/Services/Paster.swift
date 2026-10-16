@@ -20,10 +20,10 @@ enum Paster {
     //
     // 为什么首选 CGPreflightPostEventAccess 而不是 AXIsProcessTrusted：
     // 我们只用 CGEvent.post，需要的是"投递事件"权限（TCC PostEvent），不是完整的 AX API 权限。
-    // 本 App 开了 App Sandbox——沙盒 App 无法获得 AX 信任，AXIsProcessTrusted 永远返回 false，
+    // 旧版本开过 App Sandbox——沙盒 App 无法获得 AX 信任，AXIsProcessTrusted 永远返回 false，
     // 即使用户已在 系统设置 → 辅助功能 里勾选了也一样（"明明授权了还提示没授权"的根因）。
-    // 而 PostEvent 权限沙盒内可用，且同样出现在"辅助功能"列表里。
-    // 非沙盒构建（CI 未签名产物不带 entitlements）里 AX 信任也意味着能投递事件，两者取或兜底。
+    // 现在沙盒已关，但仍按实际所需的 PostEvent 权限判断（沙盒内外都准确），
+    // AX 信任同样意味着能投递事件，两者取或兜底。
     static var hasAccessibilityPermission: Bool {
         CGPreflightPostEventAccess() || AXIsProcessTrusted()
     }
