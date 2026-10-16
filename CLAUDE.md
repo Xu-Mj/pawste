@@ -84,8 +84,11 @@ Liquid Glass 的 vibrancy 会拿浮窗背后的实时内容混合 SwiftUI 层级
 ### 8. 图片处理只用 ImageIO/CoreGraphics，不要 NSImage
 `NSImage`/`NSBitmapImageRep`/`lockFocus` 在 Swift 6 是 main-actor 隔离，在 `ImageProcessor` actor（后台）里调会编译告警 + 离开主线程本就不安全。用 `CGImageSource`/`CGImageDestination`/`CGImageSourceCreateThumbnailAtIndex`（线程安全、非隔离）。
 
-### 9. 粘贴权限用 `CGPreflightPostEventAccess`，不要只靠 `AXIsProcessTrusted`
-App 开了 App Sandbox——沙盒 App 拿不到 AX 信任，`AXIsProcessTrusted` 永远 false，用户勾选了也照样提示"未授权"。我们只用 `CGEvent.post`，需要的是 PostEvent 权限（`CGPreflightPostEventAccess` / `CGRequestPostEventAccess`），沙盒内可用。另：CI 发布版未签名，每版签名不同，升级后旧授权失效但开关仍显示开启——要移除后重新添加。
+### 9. 不开 App Sandbox；粘贴权限用 `CGPreflightPostEventAccess`
+沙盒 App 拿不到 AX 信任（`AXIsProcessTrusted` 永远 false，勾选了也提示"未授权"），读 Finder 复制的文件也受限；而 CI 未签名产物本来就不带 entitlements，开沙盒只会让本地构建和发布版行为分叉。不上 App Store，所以 `ENABLE_APP_SANDBOX = NO`（`HistoryStore` 启动时会把旧沙盒容器里的数据拷过来）。权限检测按实际所需的 PostEvent 权限（`CGPreflightPostEventAccess` / `CGRequestPostEventAccess`）。另：发布版未签名，每版签名不同，升级后旧授权失效但开关仍显示开启——要移除后重新添加。
+
+### 10. 自己写剪贴板后要通知 watcher
+粘贴时 Pawste 会把条目写回 NSPasteboard，轮询会把它当成"新复制"——图片会重复入库、置顶会被挪位。写完立刻（同一同步片段、不能隔 await）调 `watcher.notePasteboardWrite(of:)` 吞掉这次 changeCount。
 
 ## 持久化文件位置
 

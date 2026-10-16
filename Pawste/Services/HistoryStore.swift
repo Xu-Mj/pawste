@@ -12,7 +12,7 @@ final class HistoryStore {
 
     // MARK: - 文件位置
 
-    // ~/Library/Application Support/Pawste/（沙盒下在容器内）
+    // ~/Library/Application Support/Pawste/
     static let appDir: URL = {
         let appSupport = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
@@ -34,6 +34,7 @@ final class HistoryStore {
 
     // 加载历史；无文件 / 解码失败都返回 []（解码失败会顺手清掉坏文件）
     func load() -> [ClipboardItem] {
+        Self.migrateFromSandboxContainerIfNeeded()
         do {
             let data = try Data(contentsOf: Self.storeURL)
             let decoder = JSONDecoder()
@@ -47,6 +48,41 @@ final class HistoryStore {
             log("⚠️ 历史文件解码失败，清空重来: \(error.localizedDescription)")
             try? FileManager.default.removeItem(at: Self.storeURL)
             return []
+        }
+    }
+
+    // MARK: - 迁移
+
+    // 旧版本开过 App Sandbox，数据在 ~/Library/Containers/<bundleID>/Data/Library/Application Support/Pawste/
+    // 关掉沙盒后路径变成 ~/Library/Application Support/Pawste/，首次启动把旧数据拷过来，否则历史"凭空消失"
+    //
+    // 只在新位置还没有 history.json 时做；拷贝不移动——旧容器原样保留，失败了也不丢数据
+    // images/ 逐个文件拷：ImageProcessor 在 load 之前就建好了空的 images 目录，整目录 copy 会因目标已存在失败
+    private static func migrateFromSandboxContainerIfNeeded() {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: storeURL.path),
+              let bundleID = Bundle.main.bundleIdentifier else { return }
+
+        let oldDir = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Containers/\(bundleID)/Data/Library/Application Support/Pawste",
+                                    isDirectory: true)
+        let oldStore = oldDir.appendingPathComponent("history.json")
+        guard fm.fileExists(atPath: oldStore.path) else { return }
+
+        let oldImages = oldDir.appendingPathComponent("images", isDirectory: true)
+        try? fm.createDirectory(at: imagesDir, withIntermediateDirectories: true)
+        for name in (try? fm.contentsOfDirectory(atPath: oldImages.path)) ?? [] {
+            let dest = imagesDir.appendingPathComponent(name)
+            guard !fm.fileExists(atPath: dest.path) else { continue }
+            try? fm.copyItem(at: oldImages.appendingPathComponent(name), to: dest)
+        }
+
+        // history.json 最后拷：图片都到位了才让它"生效"，中途失败下次启动还会重试
+        do {
+            try fm.copyItem(at: oldStore, to: storeURL)
+            log("📦 已从沙盒容器迁移历史数据")
+        } catch {
+            log("⚠️ 迁移沙盒历史失败: \(error.localizedDescription)")
         }
     }
 

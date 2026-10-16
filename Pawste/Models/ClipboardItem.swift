@@ -15,7 +15,9 @@ nonisolated struct ClipboardItem: Identifiable, Codable {
 
     let id: UUID
     let kind: Kind
-    let copiedAt: Date
+    // var：同一内容再次复制 / 从历史粘贴时刷新为"最近一次使用"的时间，
+    // 否则挪到列表顶部的条目还显示"3 天前"
+    var copiedAt: Date
 
     // 是否置顶。置顶条目：
     //   - 永远排在列表顶部
